@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <syslog.h>
 #include <errno.h>
+#include <time.h>
 #include <sys/stat.h>
 #include "bic.h"
 #include "facebook/i2c-dev.h"
@@ -37,6 +38,9 @@
 #define SIZE_SYS_GUID 16
 #define SIZE_IANA_ID 3
 #define GPIO_MAX 31
+
+#define BIOS_VER_REGION_SIZE (4*1024*1024)
+#define BIOS_VER_STR "F20_"
 
 #define BIC_UPDATE_RETRIES 12
 #define BIC_UPDATE_TIMEOUT 500
@@ -221,7 +225,7 @@ get_ipmb_bus_id(uint8_t slot_id) {
   return bus_id;
 }
 
-static int
+int
 bic_ipmb_wrapper(uint8_t slot_id, uint8_t netfn, uint8_t cmd,
                   uint8_t *txbuf, uint8_t txlen,
                   uint8_t *rxbuf, uint8_t *rxlen) {
@@ -591,7 +595,7 @@ bic_send:
 static int
 _update_bic_main(uint8_t slot_id, char *path) {
   int fd;
-  int ifd;
+  int ifd = -1;
   char cmd[100] = {0};
   struct stat buf;
   int size;
@@ -601,8 +605,11 @@ _update_bic_main(uint8_t slot_id, char *path) {
   uint8_t rcount;
   volatile int xcount;
   int i = 0;
-  int ret;
+  int ret = -1, rc;
   uint8_t xbuf[256] = {0};
+  uint32_t offset = 0, last_offset = 0, dsize;
+
+  syslog(LOG_CRIT, "bic_update_fw: update bic firmware on slot %d\n", slot_id);
 
   // Open the file exclusively for read
   fd = open(path, O_RDONLY, 0666);
@@ -613,40 +620,63 @@ _update_bic_main(uint8_t slot_id, char *path) {
 
   fstat(fd, &buf);
   size = buf.st_size;
-printf("size of file is %d bytes\n", size);
+  printf("size of file is %d bytes\n", size);
+  dsize = size/20;
 
   // Open the i2c driver
   ifd = i2c_open(get_ipmb_bus_id(slot_id));
   if (ifd < 0) {
-printf("ifd error\n");
+    printf("ifd error\n");
     goto error_exit;
   }
 
+  // Kill ipmb daemon for this slot
+  sprintf(cmd, "ps | grep -v 'grep' | grep 'ipmbd %d' |awk '{print $1}'| xargs kill -10", get_ipmb_bus_id(slot_id));
+  system(cmd);
+  printf("stop ipmbd for slot %x..\n", slot_id);
+
+  sleep(2);
+  // The I2C high speed clock (1M) could cause to read BIC data abnormally.
+  // So reduce I2C bus clock speed which is a workaround for BIC update.
+  switch(slot_id)
+  {
+     case 1:
+       system("devmem 0x1e78a104 w 0x77776305");
+       break;
+     case 2:
+       system("devmem 0x1e78a084 w 0x77776305");
+       break;
+     case 3:
+       system("devmem 0x1e78a304 w 0x77776305");
+       break;
+     case 4:
+       system("devmem 0x1e78a184 w 0x77776305");
+       break;
+     default:
+       syslog(LOG_CRIT, "bic_update_fw: incorrect slot_id %d\n", slot_id);
+       goto error_exit;
+       break;
+  }
+  sleep(1);
+
   // Enable Bridge-IC update
   if (!_is_bic_update_ready(slot_id)) {
-    if (_enable_bic_update(slot_id)) {
-      printf("enabel_bic_update failed\n");
-      goto error_exit;
-    }
+     _enable_bic_update(slot_id);
   }
-
-  // Kill ipmb daemon for this slot
-  sprintf(cmd, "ps | grep -v 'grep' | grep 'ipmbd %d' |awk '{print $1}'| xargs kill", get_ipmb_bus_id(slot_id));
-  system(cmd);
-  printf("killed ipmbd for this slot..\n");
 
   // Wait for SMB_BMC_3v3SB_ALRT_N
   for (i = 0; i < BIC_UPDATE_RETRIES; i++) {
     if (_is_bic_update_ready(slot_id)) {
-      printf("bic ready after %d tries\n", i);
+      printf("bic ready for update after %d tries\n", i);
       break;
     }
     msleep(BIC_UPDATE_TIMEOUT);
   }
 
   if (i == BIC_UPDATE_RETRIES) {
-    printf("bic is NOT ready\n");
-    goto error_exit;
+    printf("bic is NOT ready for update\n");
+    syslog(LOG_CRIT, "bic_update_fw: bic is NOT ready for update\n");
+    goto update_done;
   }
 
   sleep(1);
@@ -679,8 +709,8 @@ printf("ifd error\n");
 
   rcount = 0;
 
-  ret = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
-  if (ret) {
+  rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+  if (rc) {
     printf("i2c_io failed download\n");
     goto error_exit;
   }
@@ -689,8 +719,8 @@ printf("ifd error\n");
   msleep(500);
   tcount = 0;
   rcount = 2;
-  ret = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
-  if (ret) {
+  rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+  if (rc) {
     printf("i2c_io failed download ack\n");
     goto error_exit;
   }
@@ -708,12 +738,20 @@ printf("ifd error\n");
     tbuf[2] = BIC_CMD_STATUS;
 
     tcount = CMD_STATUS_SIZE;
+    rcount = 0;
 
+    rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+    if (rc) {
+      printf("i2c_io failed get status\n");
+      goto error_exit;
+    }
+
+    tcount = 0;
     rcount = 5;
 
-    ret = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
-    if (ret) {
-printf("i2c_io failed\n");
+    rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+    if (rc) {
+      printf("i2c_io failed get status ack\n");
       goto error_exit;
     }
 
@@ -730,9 +768,9 @@ printf("i2c_io failed\n");
     tbuf[0] = 0xcc;
     tcount = 1;
     rcount = 0;
-    ret = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
-    if (ret) {
-      printf("i2c_io failed, Send ACK\n");
+    rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+    if (rc) {
+      printf("i2c_io failed send ack\n");
       goto error_exit;
     }
 
@@ -740,10 +778,20 @@ printf("i2c_io failed\n");
 
     xcount = read(fd, xbuf, BIC_PKT_MAX);
     if (xcount <= 0) {
+#ifdef DEBUG
       printf("read returns %d\n", xcount);
+#endif
       break;
     }
+#ifdef DEBUG
     printf("read returns %d bytes\n", xcount);
+#endif
+
+    offset += xcount;
+    if((last_offset + dsize) <= offset) {
+       printf("updated bic: %d %%\n", offset/dsize*5);
+       last_offset += dsize;
+    }
 
     tbuf[0] = xcount + 3;
     tbuf[1] = BIC_CMD_DATA;
@@ -755,11 +803,21 @@ printf("i2c_io failed\n");
     }
 
     tcount = tbuf[0];
+    rcount = 0;
+
+    rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+    if (rc) {
+      printf("i2c_io error send data\n");
+      goto error_exit;
+    }
+
+    msleep(10);
+    tcount = 0;
     rcount = 2;
 
-    ret = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
-    if (ret) {
-      printf("i2c_io error\n");
+    rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+    if (rc) {
+      printf("i2c_io error send data ack\n");
       goto error_exit;
     }
 
@@ -768,6 +826,7 @@ printf("i2c_io failed\n");
       goto error_exit;
     }
   }
+  msleep(500);
 
   // Run the new image
   tbuf[0] = CMD_RUN_SIZE;
@@ -783,12 +842,20 @@ printf("i2c_io failed\n");
   }
 
   tcount = CMD_RUN_SIZE;
+  rcount = 0;
 
+  rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+  if (rc) {
+    printf("i2c_io failed run\n");
+    goto error_exit;
+  }
+
+  tcount = 0;
   rcount = 2;
 
-  ret = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
-  if (ret) {
-    printf("i2c_io failed for run\n");
+  rc = i2c_io(ifd, tbuf, tcount, rbuf, rcount);
+  if (rc) {
+    printf("i2c_io failed run ack\n");
     goto error_exit;
   }
 
@@ -796,15 +863,172 @@ printf("i2c_io failed\n");
     printf("run response: %x:%x\n", rbuf[0], rbuf[1]);
     goto error_exit;
   }
+  msleep(500);
 
-error_exit:
+  // Wait for SMB_BMC_3v3SB_ALRT_N
+  for (i = 0; i < BIC_UPDATE_RETRIES; i++) {
+    if (!_is_bic_update_ready(slot_id))
+      break;
+
+    msleep(BIC_UPDATE_TIMEOUT);
+  }
+  if (i == BIC_UPDATE_RETRIES) {
+    printf("bic is NOT ready\n");
+    goto error_exit;
+  }
+
+update_done:
+  // mark as successful
+  ret = 0;
+  // Restore the I2C bus clock to 1M.
+  switch(slot_id)
+  {
+     case 1:
+       system("devmem 0x1e78a104 w 0x77744302");
+       break;
+     case 2:
+       system("devmem 0x1e78a084 w 0x77744302");
+       break;
+     case 3:
+       system("devmem 0x1e78a304 w 0x77744302");
+       break;
+     case 4:
+       system("devmem 0x1e78a184 w 0x77744302");
+       break;
+     default:
+       syslog(LOG_ERR, "bic_update_fw: incorrect slot_id %d\n", slot_id);
+       break;
+  }
+
   // Restart ipmbd daemon
-  memset(cmd, 0, sizeof(cmd));
-  sprintf(cmd, "/usr/local/bin/ipmbd %d", get_ipmb_bus_id(slot_id));
+  sleep(1);
+  sprintf(cmd, "ps | grep -v 'grep' | grep 'ipmbd %d' |awk '{print $1}'| xargs kill -12", get_ipmb_bus_id(slot_id));
   system(cmd);
 
+error_exit:
+  syslog(LOG_CRIT, "bic_update_fw: updating firmware is exiting\n");
   if (fd > 0) {
     close(fd);
+  }
+
+  if (ifd > 0) {
+     close(ifd);
+  }
+
+  return ret;
+}
+
+static int
+check_cpld_image(int fd, long size) {
+  int i, j, rcnt;
+  uint8_t *buf, data;
+  uint16_t crc_exp, crc_val = 0xffff;
+  uint32_t dword, crc_offs;
+
+  if (size < 52)
+    return -1;
+
+  buf = (uint8_t *)malloc(size);
+  if (!buf) {
+    return -1;
+  }
+
+  i = 0;
+  while (i < size) {
+    rcnt = read(fd, (buf + i), size);
+    if ((rcnt < 0) && (errno != EINTR)) {
+      free(buf);
+      return -1;
+    }
+    i += rcnt;
+  }
+
+  dword = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+  if ((dword != 0x4A414D00) && (dword != 0x4A414D01)) {
+    free(buf);
+    return -1;
+  }
+
+  i = 32 + (dword & 0x1) * 8;
+  crc_offs = (buf[i] << 24) | (buf[i+1] << 16) | (buf[i+2] << 8) | buf[i+3];
+  if ((crc_offs + sizeof(crc_exp)) > size) {
+    free(buf);
+    return -1;
+  }
+  crc_exp = (buf[crc_offs] << 8) | buf[crc_offs+1];
+
+  for (i = 0; i < crc_offs; i++) {
+    data = buf[i];
+    for (j = 0; j < 8; j++, data >>= 1) {
+      crc_val = ((data ^ crc_val) & 0x1) ? ((crc_val >> 1) ^ 0x8408) : (crc_val >> 1);
+    }
+  }
+  crc_val = ~crc_val;
+  free(buf);
+
+  if (crc_exp != crc_val)
+    return -1;
+
+  lseek(fd, 0, SEEK_SET);
+  return 0;
+}
+
+static int
+check_bios_image(int fd, long size) {
+  int i, rcnt, end;
+  uint8_t *buf;
+  uint8_t ver_sig[] = { 0x46, 0x49, 0x44, 0x04, 0x78, 0x00 };
+
+  if (size < BIOS_VER_REGION_SIZE)
+    return -1;
+
+  buf = (uint8_t *)malloc(BIOS_VER_REGION_SIZE);
+  if (!buf) {
+    return -1;
+  }
+
+  lseek(fd, (size - BIOS_VER_REGION_SIZE), SEEK_SET);
+  i = 0;
+  while (i < BIOS_VER_REGION_SIZE) {
+    rcnt = read(fd, (buf + i), BIOS_ERASE_PKT_SIZE);
+    if ((rcnt < 0) && (errno != EINTR)) {
+      free(buf);
+      return -1;
+    }
+    i += rcnt;
+  }
+
+  end = BIOS_VER_REGION_SIZE - (sizeof(ver_sig) + strlen(BIOS_VER_STR));
+  for (i = 0; i < end; i++) {
+    if (!memcmp(buf+i, ver_sig, sizeof(ver_sig))) {
+      if (memcmp(buf+i+sizeof(ver_sig), BIOS_VER_STR, strlen(BIOS_VER_STR))) {
+        i = end;
+      }
+      break;
+    }
+  }
+  free(buf);
+
+  if (i >= end)
+    return -1;
+
+  lseek(fd, 0, SEEK_SET);
+  return 0;
+}
+
+static int
+set_fw_update_ongoing(uint8_t slot_id, uint16_t tmout) {
+  char key[64];
+  char value[64];
+  struct timespec ts;
+
+  sprintf(key, "slot%d_fwupd", slot_id);
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  ts.tv_sec += tmout;
+  sprintf(value, "%d", ts.tv_sec);
+
+  if (edb_cache_set(key, value) < 0) {
+     return -1;
   }
 
   return 0;
@@ -812,13 +1036,10 @@ error_exit:
 
 int
 bic_update_fw(uint8_t slot_id, uint8_t comp, char *path) {
-  int ret;
+  int ret = -1, rc;
   uint32_t offset;
   volatile uint16_t count, read_count;
   uint8_t buf[256] = {0};
-  char    cmd[100] = {0};
-  char    temp[8];
-  uint8_t len = 0;
   uint8_t target;
   int fd;
   int i;
@@ -826,9 +1047,11 @@ bic_update_fw(uint8_t slot_id, uint8_t comp, char *path) {
   uint32_t gcksum;
   uint8_t *tbuf = NULL;
 
+  printf("updating fw on slot %d:\n", slot_id);
   // Handle Bridge IC firmware separately as the process differs significantly from others
   if (comp == UPDATE_BIC) {
-   return  _update_bic_main(slot_id, path);
+    set_fw_update_ongoing(slot_id, 25);
+    return  _update_bic_main(slot_id, path);
   }
 
   uint32_t dsize, last_offset;
@@ -842,23 +1065,24 @@ bic_update_fw(uint8_t slot_id, uint8_t comp, char *path) {
     goto error_exit;
   }
 
-  // Kill sendor daemon for this slot
-  if (comp == UPDATE_BIOS ) {
-    system("ps | grep -v 'grep' | grep 'sensord' |awk '{print $1}'|\
-           xargs kill");
-    printf("killed sensord for this slot.\n");
-    strcpy(cmd, "/usr/local/bin/sensord");
-    for(i = 1; i < 5; i++){
-      if(slot_id == i)
-        continue;
-      sprintf(temp, " slot%d",i);
-      strcat(cmd, temp);
-    }
-    strcat(cmd, " spb nic");
-    system(cmd);
-  }
   stat(path, &st);
-  dsize = st.st_size/100;
+  if (comp == UPDATE_BIOS) {
+    if (check_bios_image(fd, st.st_size) < 0) {
+      printf("invalid BIOS file!\n");
+      goto error_exit;
+    }
+
+    set_fw_update_ongoing(slot_id, 25);
+    dsize = st.st_size/100;
+  } else {
+    if ((comp == UPDATE_CPLD) && (check_cpld_image(fd, st.st_size) < 0)) {
+      printf("invalid CPLD file!\n");
+      goto error_exit;
+    }
+
+    set_fw_update_ongoing(slot_id, 20);
+    dsize = st.st_size/20;
+  }
   // Write chunks of binary data in a loop
   offset = 0;
   last_offset = 0;
@@ -886,15 +1110,26 @@ bic_update_fw(uint8_t slot_id, uint8_t comp, char *path) {
     }
 
     // Send data to Bridge-IC
-    ret = _update_fw(slot_id, target, offset, count, buf);
-    if (ret) {
-      break;
+    rc = _update_fw(slot_id, target, offset, count, buf);
+    if (rc) {
+      goto error_exit;
     }
 
     // Update counter
     offset += count;
     if((last_offset + dsize) <= offset) {
-       printf("updated fw: %d %%\n", offset/dsize);
+       switch(comp) {
+         case UPDATE_BIOS:
+           set_fw_update_ongoing(slot_id, 20);
+           printf("updated bios: %d %%\n", offset/dsize);
+           break;
+         case UPDATE_CPLD:
+           printf("updated cpld: %d %%\n", offset/dsize*5);
+           break;
+         default:
+           printf("updated bic boot loader: %d %%\n", offset/dsize*5);
+           break;
+       }
        last_offset += dsize;
     }
   }
@@ -902,6 +1137,7 @@ bic_update_fw(uint8_t slot_id, uint8_t comp, char *path) {
   if (comp != UPDATE_BIOS) {
     goto update_done;
   }
+  set_fw_update_ongoing(slot_id, 55);
 
   // Checksum calculation for BIOS image
   tbuf = malloc(BIOS_VERIFY_PKT_SIZE * sizeof(uint8_t));
@@ -923,8 +1159,8 @@ bic_update_fw(uint8_t slot_id, uint8_t comp, char *path) {
     }
 
     // Get the checksum of binary image
-    ret = bic_get_fw_cksum(slot_id, comp, offset, BIOS_VERIFY_PKT_SIZE, &gcksum);
-    if (ret) {
+    rc = bic_get_fw_cksum(slot_id, comp, offset, BIOS_VERIFY_PKT_SIZE, (uint8_t*)&gcksum);
+    if (rc) {
       goto error_exit;
     }
 
@@ -938,6 +1174,7 @@ bic_update_fw(uint8_t slot_id, uint8_t comp, char *path) {
   }
 
 update_done:
+  ret = 0;
 error_exit:
   if (fd > 0 ) {
     close(fd);
@@ -946,10 +1183,9 @@ error_exit:
   if (tbuf) {
     free(tbuf);
   }
-  if (comp == UPDATE_BIOS ) {
-    system("ps | grep -v 'grep' | grep 'sensord' |awk '{print $1}'|\
-           xargs kill");
-    system("/usr/local/bin/sensord slot1 slot2 slot3 slot4 spb nic");
+
+  if (ret) {
+    printf("updating fw on slot %d failed\n", slot_id);
   }
   return ret;
 }
@@ -1244,7 +1480,7 @@ bic_get_sdr(uint8_t slot_id, ipmi_sel_sdr_req_t *req, ipmi_sel_sdr_res_t *res, u
   req->offset = 0;
   req->nbytes = sizeof(sdr_rec_hdr_t);
 
-  ret = _get_sdr(slot_id, req, tbuf, &tlen);
+  ret = _get_sdr(slot_id, req, (ipmi_sel_sdr_res_t *)tbuf, &tlen);
   if (ret) {
 #ifdef DEBUG
     syslog(LOG_ERR, "bic_read_sdr: _get_sdr returns %d\n", ret);
@@ -1274,7 +1510,7 @@ bic_get_sdr(uint8_t slot_id, ipmi_sel_sdr_req_t *req, ipmi_sel_sdr_res_t *res, u
       req->nbytes = len;
     }
 
-    ret = _get_sdr(slot_id, req, tbuf, &tlen);
+    ret = _get_sdr(slot_id, req, (ipmi_sel_sdr_res_t *)tbuf, &tlen);
     if (ret) {
 #ifdef DEBUG
       syslog(LOG_ERR, "bic_read_sdr: _get_sdr returns %d\n", ret);
@@ -1297,7 +1533,7 @@ bic_get_sdr(uint8_t slot_id, ipmi_sel_sdr_req_t *req, ipmi_sel_sdr_res_t *res, u
 int
 bic_read_sensor(uint8_t slot_id, uint8_t sensor_num, ipmi_sensor_reading_t *sensor) {
   int ret;
-  int rlen = 0;
+  uint8_t rlen = 0;
 
   ret = bic_ipmb_wrapper(slot_id, NETFN_SENSOR_REQ, CMD_SENSOR_GET_SENSOR_READING, (uint8_t *)&sensor_num, 1, (uint8_t *)sensor, &rlen);
 
@@ -1307,7 +1543,7 @@ bic_read_sensor(uint8_t slot_id, uint8_t sensor_num, ipmi_sensor_reading_t *sens
 int
 bic_get_sys_guid(uint8_t slot_id, uint8_t *guid) {
   int ret;
-  int rlen = 0;
+  uint8_t rlen = 0;
 
   ret = bic_ipmb_wrapper(slot_id, NETFN_APP_REQ, CMD_APP_GET_SYSTEM_GUID, NULL, 0, guid, &rlen);
   if (rlen != SIZE_SYS_GUID) {
@@ -1319,3 +1555,4 @@ bic_get_sys_guid(uint8_t slot_id, uint8_t *guid) {
 
   return ret;
 }
+

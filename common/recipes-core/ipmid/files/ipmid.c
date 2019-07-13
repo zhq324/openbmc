@@ -35,11 +35,20 @@
 #include <sys/un.h>
 #include <openbmc/ipmi.h>
 #include <openbmc/pal.h>
+#include <sys/reboot.h>
 
 #define SIZE_IANA_ID 3
 #define SIZE_SYS_GUID 16
 
+// declare for clearing BIOS flag
+#define BIOS_TIMEOUT 600
+// Boot valid flag
+#define BIOS_BOOT_VALID_FLAG (1U << 7)
+#define CMOS_VALID_FLAG      (1U << 1)
+
 extern void plat_lan_init(lan_config_t *lan);
+
+static uint8_t IsTimerStart[MAX_NODES] = {0};
 
 // TODO: Once data storage is finalized, the following structure needs
 // to be retrieved/updated from persistant backend storage
@@ -64,6 +73,55 @@ static void ipmi_handle(unsigned char *request, unsigned char req_len,
        unsigned char *response, unsigned char *res_len);
 
 /*
+ **Function to handle with clearing BIOS flag
+ */
+static void
+*clear_bios_data_timer(void *ptr)
+{
+  int timer = 0;
+  int slot_id = (int)ptr;
+  int oldstate;
+  uint8_t boot[SIZE_BOOT_ORDER] = {0};
+  uint8_t res_len;
+
+  pthread_detach(pthread_self());
+
+  while (timer <= BIOS_TIMEOUT) {
+#ifdef DEBUG
+    syslog(LOG_WARNING, "[%s][%lu] Timer: %d\n", __func__, pthread_self(), timer);
+#endif
+    sleep(1);
+
+    timer++;
+  }
+
+  //get boot order setting
+  pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate);
+  pal_get_boot_order(slot_id, NULL, boot, &res_len);
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &oldstate);
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s][%lu] Get: %x %x %x %x %x %x\n", __func__, pthread_self() ,boot[0], boot[1], boot[2], boot[3], boot[4], boot[5]);
+#endif
+
+  //clear boot-valid and cmos bits due to timeout:
+  boot[0] &= ~(BIOS_BOOT_VALID_FLAG | CMOS_VALID_FLAG);
+
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s][%lu] Set: %x %x %x %x %x %x\n", __func__, pthread_self() , boot[0], boot[1], boot[2], boot[3], boot[4], boot[5]);
+#endif
+
+  //set data
+  pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &oldstate);
+  pal_set_boot_order(slot_id, boot, NULL, &res_len);
+  pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &oldstate);
+
+  IsTimerStart[slot_id - 1] = false;
+
+  pthread_exit(0);
+}
+
+/*
  * Function(s) to handle IPMI messages with NetFn: Chassis
  */
 // Get Chassis Status (IPMI/Section 28.2)
@@ -82,9 +140,10 @@ chassis_get_status (unsigned char *response, unsigned char *res_len)
   *data++ = 0x40;		// Misc. Chassis Status
   *data++ = 0x00;		// Front Panel Button Disable
 
-  res_len = data - &res->data[0];
+  *res_len = data - &res->data[0];
 }
 
+#ifdef CHASSIS_GET_BOOT_OPTION_SUPPORT
 // Get System Boot Options (IPMI/Section 28.12)
 static void
 chassis_get_boot_options (unsigned char *request, unsigned char *response,
@@ -146,6 +205,7 @@ chassis_get_boot_options (unsigned char *request, unsigned char *response,
     *res_len = data - &res->data[0];
   }
 }
+#endif
 
 // Handle Chassis Commands (IPMI/Section 28)
 static void
@@ -162,9 +222,11 @@ ipmi_handle_chassis (unsigned char *request, unsigned char req_len,
     case CMD_CHASSIS_GET_STATUS:
       chassis_get_status (response, res_len);
       break;
+#ifdef CHASSIS_GET_BOOT_OPTION_SUPPORT
     case CMD_CHASSIS_GET_BOOT_OPTIONS:
       chassis_get_boot_options (request, response, res_len);
       break;
+#endif
     default:
       res->cc = CC_INVALID_CMD;
       break;
@@ -188,6 +250,7 @@ sensor_plat_event_msg(unsigned char *request, unsigned char req_len,
   sel_msg_t entry;
 
   // Platform event provides only last 7 bytes of SEL's 16-byte entry
+  entry.msg[2] = 0x02;  /* Set Record Type to be system event record.*/
   memcpy(&entry.msg[9], req->data, 7);
 
   // Use platform APIs to add the new SEL entry
@@ -233,14 +296,25 @@ app_get_device_id (unsigned char *response, unsigned char *res_len)
 
   ipmi_res_t *res = (ipmi_res_t *) response;
   unsigned char *data = &res->data[0];
+  FILE *fp=NULL;
+  int fv_major = 0x01, fv_minor = 0x03;
+  char buffer[32];
+
+  fp = fopen("/etc/issue","r");
+  if (fp != NULL)
+  {
+     if (fgets(buffer, sizeof(buffer), fp))
+         sscanf(buffer, "%*[^v]v%d.%d", &fv_major, &fv_minor);
+     fclose(fp);
+  }
 
   res->cc = CC_SUCCESS;
 
   //TODO: Following data needs to be updated based on platform
   *data++ = 0x20;		// Device ID
   *data++ = 0x81;		// Device Revision
-  *data++ = 0x00;		// Firmware Revision Major
-  *data++ = 0x09;		// Firmware Revision Minor
+  *data++ = fv_major & 0x7f;      // Firmware Revision Major
+  *data++ = ((fv_minor / 10) << 4) | (fv_minor % 10);      // Firmware Revision Minor
   *data++ = 0x02;		// IPMI Version
   *data++ = 0xBF;		// Additional Device Support
   *data++ = 0x15;		// Manufacturer ID1
@@ -260,7 +334,21 @@ app_get_device_id (unsigned char *response, unsigned char *res_len)
 static void
 app_cold_reset(void)
 {
-  system("/sbin/reboot");
+  uint8_t slot, num_slots;
+  int ret;
+  pal_get_num_slots(&num_slots);
+  for (slot = 1; slot <= num_slots; slot++) {
+     ret = pal_is_crashdump_ongoing(slot);
+     if (ret > 0) {
+       printf("Crashdump for fru %u is ongoing...\n", slot);
+       printf("Please wait for 10 minutes and try again\n");
+       return;
+    }else {
+       if (ret == -1)
+         printf("Eroor to get crashdump key for fru %u\n", slot);
+    }
+  }
+  reboot(RB_AUTOBOOT);
 }
 
 
@@ -277,6 +365,28 @@ app_get_selftest_results (unsigned char *response, unsigned char *res_len)
   //TODO: Following data needs to be updated based on self-test results
   *data++ = 0x55;		// Self-Test result
   *data++ = 0x00;		// Extra error info in case of failure
+
+  *res_len = data - &res->data[0];
+}
+
+// Manufacturing Test On (IPMI/Section 20.5)
+static void
+app_manufacturing_test_on (unsigned char *request, unsigned char req_len,
+                           unsigned char *response, unsigned char *res_len)
+{
+
+  ipmi_mn_req_t *req = (ipmi_mn_req_t *) request;
+  ipmi_res_t *res = (ipmi_res_t *) response;
+  unsigned char *data = &res->data[0];
+
+  res->cc = CC_SUCCESS;
+
+  if ((!memcmp(req->data, "sled-cycle", strlen("sled-cycle"))) &&
+      (req_len - ((void*)req->data - (void*)req)) == strlen("sled-cycle")) {
+    system("/usr/local/bin/power-util sled-cycle");
+  } else {
+    res->cc = CC_INVALID_PARAM;
+  }
 
   *res_len = data - &res->data[0];
 }
@@ -474,6 +584,9 @@ ipmi_handle_app (unsigned char *request, unsigned char req_len,
       break;
     case CMD_APP_GET_SELFTEST_RESULTS:
       app_get_selftest_results (response, res_len);
+      break;
+    case CMD_APP_MANUFACTURING_TEST_ON:
+      app_manufacturing_test_on (request, req_len, response, res_len);
       break;
     case CMD_APP_GET_DEVICE_GUID:
       app_get_device_guid (response, res_len);
@@ -910,9 +1023,12 @@ ipmi_handle_storage (unsigned char *request, unsigned char req_len,
     case CMD_STORAGE_CLR_SEL:
       storage_clr_sel (request, response, res_len);
       break;
+#if 0 // To avoid BIOS using this command to update RTC
+      // TBD: Respond only if BMC's time has synced with NTP
     case CMD_STORAGE_GET_SEL_TIME:
       storage_get_sel_time (response, res_len);
       break;
+#endif
     case CMD_STORAGE_GET_SEL_UTC:
       storage_get_sel_utc (response, res_len);
       break;
@@ -1222,6 +1338,57 @@ oem_set_dimm_info (unsigned char *request, unsigned char *response,
 }
 
 static void
+oem_set_boot_order(unsigned char *request, unsigned char req_len,
+                   unsigned char *response, unsigned char *res_len)
+{
+  ipmi_mn_req_t *req = (ipmi_mn_req_t *) request;
+  ipmi_res_t *res = (ipmi_res_t *) response;
+  int ret;
+  int slot_id = req->payload_id;
+  static pthread_t bios_timer_tid[MAX_NODES];
+
+  if (IsTimerStart[req->payload_id - 1]) {
+#ifdef DEBUG
+    syslog(LOG_WARNING, "[%s] Close the previous thread\n", __func__);
+#endif
+    pthread_cancel(bios_timer_tid[req->payload_id - 1]);
+    IsTimerStart[req->payload_id - 1] = false;    
+  }
+
+  if (req->data[0] & (BIOS_BOOT_VALID_FLAG | CMOS_VALID_FLAG)) {
+    // create timer thread
+    ret = pthread_create(&bios_timer_tid[req->payload_id - 1], NULL, clear_bios_data_timer, (void *)slot_id);
+    if (ret < 0) {
+      syslog(LOG_WARNING, "[%s] Create BIOS timer thread failed!\n", __func__);
+
+      res->cc = CC_NODE_BUSY;
+      *res_len = 0;
+      return;
+    }
+
+    IsTimerStart[req->payload_id - 1] = true;
+  }
+
+  ret = pal_set_boot_order(req->payload_id, req->data, res->data, res_len);
+  res->cc = (ret == 0) ? CC_SUCCESS : CC_INVALID_PARAM;
+}
+
+static void
+oem_get_boot_order(unsigned char *request, unsigned char req_len,
+                   unsigned char *response, unsigned char *res_len)
+{
+  ipmi_mn_req_t *req = (ipmi_mn_req_t *) request;
+  ipmi_res_t *res = (ipmi_res_t *) response;
+  int ret;
+
+  ret = pal_get_boot_order(req->payload_id, req->data, res->data, res_len);
+#ifdef DEBUG
+  syslog(LOG_WARNING, "[%s] Get: %x %x %x %x %x %x\n", __func__, res->data[0], res->data[1], res->data[2], res->data[3], res->data[4], res->data[5]);
+#endif
+  res->cc = (ret == 0) ? CC_SUCCESS : CC_INVALID_PARAM;
+}
+
+static void
 oem_set_post_start (unsigned char *request, unsigned char *response,
                   unsigned char *res_len)
 {
@@ -1304,6 +1471,12 @@ ipmi_handle_oem (unsigned char *request, unsigned char req_len,
     case CMD_OEM_SET_DIMM_INFO:
       oem_set_dimm_info (request, response, res_len);
       break;
+    case CMD_OEM_SET_BOOT_ORDER:
+      oem_set_boot_order(request, req_len, response, res_len);
+      break;
+    case CMD_OEM_GET_BOOT_ORDER:
+      oem_get_boot_order(request, req_len, response, res_len);
+      break;
     case CMD_OEM_SET_POST_START:
       oem_set_post_start (request, response, res_len);
       break;
@@ -1330,6 +1503,16 @@ oem_1s_handle_ipmb_kcs(unsigned char *request, unsigned char req_len,
   // Need to extract bridged IPMI command and handle
   unsigned char req_buf[MAX_IPMI_MSG_SIZE] = {0};
   unsigned char res_buf[MAX_IPMI_MSG_SIZE] = {0};
+
+  if ((request[BIC_INTF_HDR_SIZE] >> 2) == NETFN_OEM_1S_REQ) {
+    res->cc = CC_SUCCESS;
+    memcpy(res->data, req->data, SIZE_IANA_ID+1);   // IANA ID + Interface type
+    res->data[4] = request[BIC_INTF_HDR_SIZE] + 4;  // netfn/lun
+    res->data[5] = request[BIC_INTF_HDR_SIZE+1];    // cmd
+    res->data[6] = CC_INVALID_CMD;
+    *res_len = 7;
+    return;
+  }
 
   // Add the payload id from the bridged command
   req_buf[0] = req->payload_id;
@@ -1420,7 +1603,7 @@ ipmi_handle_oem_1s(unsigned char *request, unsigned char req_len,
       break;
     case CMD_OEM_1S_POST_BUF:
       // Skip the first 3 bytes of IANA ID and one byte of length field
-      for (i = SIZE_IANA_ID+1; i <= req->data[3]; i++) {
+      for (i = SIZE_IANA_ID+1; i <= req->data[SIZE_IANA_ID]+SIZE_IANA_ID; i++) {
         pal_post_handle(req->payload_id, req->data[i]);
       }
 
@@ -1595,8 +1778,8 @@ main (void)
   int *p_s2;
   int rc = 0;
 
-  daemon(1, 1);
-  openlog("ipmid", LOG_CONS, LOG_DAEMON);
+  //daemon(1, 1);
+  //openlog("ipmid", LOG_CONS, LOG_DAEMON);
 
 
   plat_fruid_init();

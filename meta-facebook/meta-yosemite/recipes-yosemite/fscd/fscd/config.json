@@ -6,11 +6,13 @@
     "fan_fail": true,
     "sensor_fail": true
   },
-  "watchdog": true,
+  "watchdog": false,
   "min_rpm": 800,
   "profiles": {
     "linear_dimm": {
       "type": "linear",
+      "positive_hysteresis": 0,
+      "negative_hysteresis": 0,
       "data": [
         [65, 18],
         [67, 25],
@@ -22,6 +24,8 @@
     },
     "linear_mezz": {
       "type": "linear",
+      "positive_hysteresis": 0,
+      "negative_hysteresis": 0,
       "data": [
         [85, 18],
         [87, 35],
@@ -32,6 +36,8 @@
     },
     "linear_inlet": {
       "type": "linear",
+      "positive_hysteresis": 0,
+      "negative_hysteresis": 0,
       "data": [
         [ 25, 18 ],
         [ 27, 19 ],
@@ -48,6 +54,8 @@
     },
     "linear_cpu_margin": {
       "type": "linear",
+      "positive_hysteresis": 0,
+      "negative_hysteresis": 0,
       "data": [
         [ -30, 18 ],
         [ -28, 20 ],
@@ -69,19 +77,21 @@
     },
     "linear_mb_outlet": {
       "type": "linear",
+      "positive_hysteresis": 0,
+      "negative_hysteresis": 0,
       "data": [
-        [ 45, 18 ],
-        [ 47, 19 ],
-        [ 49, 21 ],
-        [ 51, 22 ]
+        [ 43, 18 ],
+        [ 45, 19 ],
+        [ 47, 21 ],
+        [ 49, 23 ]
       ]
     },
     "pid_mb_outlet": {
       "type": "pid",
       "setpoint": 53,
-      "negative_hysteresis": 1,
+      "negative_hysteresis": 3,
       "positive_hysteresis": 1,
-      "kp": -1,
+      "kp": -2,
       "ki": -0.025,
       "kd": 0
     }

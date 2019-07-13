@@ -44,6 +44,7 @@ def log_main():
     # Get the list of frus from PAL library
     frus = pal_get_fru_list()
     frulist = re.split(r',\s', frus)
+    frulist.append('sys')
 
     if len(sys.argv) is not 3:
         print_usage()
@@ -90,7 +91,7 @@ def log_main():
 
             for log in syslog:
                 # Print only critical logs
-                if not (re.search(r' bmc [a-z]*.crit ', log)):
+                if not (re.search(r' bmc [a-z]*.crit ', log) or re.search(r'log-util:', log)):
                     continue
 
                 # Find the FRU number
@@ -102,7 +103,10 @@ def log_main():
                     fru_num = '0'
 
                 # FRU # is always aligned with indexing of fru list
-                fruname = frulist[int(fru_num)]
+                if fru == 'sys' and fru_num == '0':
+                    fruname = 'sys'
+                else:
+                    fruname = frulist[int(fru_num)]
 
                 # Clear the log is the argument fru matches the log fru
                 if fru == 'all' or fru == fruname:
@@ -112,18 +116,27 @@ def log_main():
                     newlog = newlog + log
 
             # Dump the new log in a tmp file
-            tmpfd = open('%s.tmp' % logfile, 'w')
+            if logfile == syslogfiles[1] and fru != 'sys':
+               if fru == 'all':
+                  temp = 'all'
+               else:
+                  fru_num = str(frulist.index(fru))
+                  temp = 'FRU: ' + fru_num
+               time = datetime.now()
+               newlog = newlog + time.strftime('%b %d %H:%M:%S') + ' log-util: User cleared ' + temp + ' logs\n'
+            curpid = os.getpid()
+            tmpfd = open('%s.tmp%d' % (logfile, curpid), 'w')
             tmpfd.write(newlog)
             tmpfd.close()
             # Rename the tmp file to original syslog file
-            os.rename('%s.tmp' % logfile, logfile)
+            os.rename('%s.tmp%d' % (logfile, curpid), logfile)
 
         # Print cmd
         if cmd == cmdlist[0]:
 
             for log in syslog:
                 # Print only critical logs
-                if not (re.search(r' bmc [a-z]*.crit ', log)):
+                if not (re.search(r' bmc [a-z]*.crit ', log) or re.search(r'log-util:', log)):
                     continue
 
                 # Find the FRU number
@@ -134,13 +147,24 @@ def log_main():
                 else:
                     fru_num = '0'
 
-                    # FRU # is always aligned with indexing of fru list
-                fruname = frulist[int(fru_num)]
+                # FRU # is always aligned with indexing of fru list
+                if fru == 'sys' and fru_num == '0':
+                    fruname = 'sys'
+                else:
+                    fruname = frulist[int(fru_num)]
 
                 # Print only if the argument fru matches the log fru
+                if re.search(r'log-util:', log):
+                   if re.search(r'all logs', log):
+                     print (log)
+                     continue
+
                 if fru != 'all' and fru != fruname:
                     continue
 
+                if re.search(r'log-util:', log):
+                     print (log)
+                     continue
                 # Time format Sep 28 22:10:50
                 temp = re.split(r' bmc [a-z]*.crit ', log)
                 ts = temp[0]
@@ -160,6 +184,21 @@ def log_main():
                     app,
                     message
                     )
+
+    if cmd == cmdlist[1]:
+        if fru == 'all':
+           for i in range (1, len(frulist)):
+               fruname = frulist[i] + '_sensor_health'
+               pal_set_key_value(fruname)
+           for i in range (1, len(frulist)):
+               fruname = frulist[i] + '_sel_error'
+               pal_set_key_value(fruname)
+        else:
+           fruname = fru + '_sensor_health'
+           pal_set_key_value(fruname)
+           if fru != 'nic' and fru != 'spb':
+               fruname = fru + '_sel_error'
+               pal_set_key_value(fruname)
 
 
 if __name__ == '__main__':

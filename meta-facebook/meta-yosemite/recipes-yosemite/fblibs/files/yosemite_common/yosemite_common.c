@@ -36,6 +36,7 @@
 
 struct threadinfo {
   uint8_t is_running;
+  uint8_t fru;
   pthread_t pt;
 };
 
@@ -119,7 +120,7 @@ generate_dump(void *arg) {
   // Usually the pthread cancel state are enable by default but
   // here we explicitly would like to enable them
   rc = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-  rc = pthread_setcanceltype(PTHREAD_CANCEL_ENABLE, NULL);
+  rc = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 
   yosemite_common_fru_name(fru, fruname);
 
@@ -130,19 +131,20 @@ generate_dump(void *arg) {
 
   // COREID dump
   memset(cmd, 0, 128);
-  sprintf(cmd, "%s %s 48 coreid >> %s%s", CRASHDUMP_BIN, fruname,
-      CRASHDUMP_FILE, fruname);
+  sprintf(cmd, "%s %s coreid >> %s%s", CRASHDUMP_BIN, fruname, CRASHDUMP_FILE, fruname);
   system(cmd);
 
   // MSR dump
   memset(cmd, 0, 128);
-  sprintf(cmd, "%s %s 48 msr >> %s%s", CRASHDUMP_BIN, fruname,
-      CRASHDUMP_FILE, fruname);
+  sprintf(cmd, "%s %s msr >> %s%s", CRASHDUMP_BIN, fruname, CRASHDUMP_FILE, fruname);
   system(cmd);
 
   syslog(LOG_CRIT, "Crashdump for FRU: %d is generated.", fru);
 
   t_dump[fru-1].is_running = 0;
+
+  sprintf(cmd, CRASHDUMP_KEY, fru);
+  edb_cache_set(cmd, "0");
 }
 
 
@@ -150,6 +152,7 @@ int
 yosemite_common_crashdump(uint8_t fru) {
 
   int ret;
+  char cmd[100];
 
   // Check if the crashdump script exist
   if (access(CRASHDUMP_BIN, F_OK) == -1) {
@@ -164,15 +167,21 @@ yosemite_common_crashdump(uint8_t fru) {
     ret = pthread_cancel(t_dump[fru-1].pt);
     if (ret == ESRCH) {
       syslog(LOG_INFO, "yosemite_common_crashdump: No Crashdump pthread exists");
-#ifdef DEBUG
     } else {
+      pthread_join(t_dump[fru-1].pt, NULL);
+      sprintf(cmd, "ps | grep '{dump.sh}' | grep 'slot%d' | awk '{print $1}'| xargs kill", fru);
+      system(cmd);
+      sprintf(cmd, "ps | grep 'me-util' | grep 'slot%d' | awk '{print $1}'| xargs kill", fru);
+      system(cmd);
+#ifdef DEBUG
       syslog(LOG_INFO, "yosemite_common_crashdump: Previous crashdump thread is cancelled");
 #endif
     }
   }
 
   // Start a thread to generate the crashdump
-  if (pthread_create(&(t_dump[fru-1].pt), NULL, generate_dump, (void*) &fru) < 0) {
+  t_dump[fru-1].fru = fru;
+  if (pthread_create(&(t_dump[fru-1].pt), NULL, generate_dump, (void*) &t_dump[fru-1].fru) < 0) {
     syslog(LOG_WARNING, "pal_store_crashdump: pthread_create for"
         " FRU %d failed\n", fru);
     return -1;

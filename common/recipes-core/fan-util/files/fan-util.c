@@ -42,6 +42,30 @@ print_usage(void) {
   printf("       fan-util --get < Fan# [%s] >\n", pal_tach_list);
 }
 
+static int
+parse_pwm(char *str, uint8_t *pwm) {
+  char *endptr = NULL;
+  uint8_t val;
+
+  val = (uint8_t)strtol(str, &endptr, 10);
+  if ((*endptr != '\0' && *endptr != '%') || val > 100)
+    return -1;
+  *pwm = val;
+  return 0;
+}
+
+static int
+parse_fan(char *str, uint8_t fan_cnt, uint8_t *fan) {
+  uint8_t val;
+  char *endptr = NULL;
+
+  val = (uint8_t)strtol(str, &endptr, 10);
+  if (*endptr != '\0' || val >= fan_cnt)
+    return -1;
+  *fan = val;
+  return 0;
+}
+
 int
 main(int argc, char **argv) {
 
@@ -62,16 +86,14 @@ main(int argc, char **argv) {
 
     /* fan-util --set <pwm> <fan#> */
     cmd = CMD_SET_FAN;
-    pwm = (uint8_t) atoi(argv[2]);
-    if (pwm > 100) {
+    if (parse_pwm(argv[2], &pwm)) {
       print_usage();
       return -1;
     }
 
     // Get Fan Number, if mentioned
     if (argc == 4) {
-      fan = (uint8_t) atoi(argv[3]);
-      if (fan >= pal_pwm_cnt) {
+      if (parse_fan(argv[3], pal_pwm_cnt, &fan)) {
         print_usage();
         return -1;
       }
@@ -84,8 +106,7 @@ main(int argc, char **argv) {
 
     // Get Fan Number, if mentioned
     if (argc == 3) {
-      fan = (uint8_t) atoi(argv[2]);
-      if (fan >= pal_tach_cnt) {
+      if (parse_fan(argv[2], pal_tach_cnt, &fan)) {
         print_usage();
         return -1;
       }
@@ -109,7 +130,7 @@ main(int argc, char **argv) {
       if (!ret) {
         memset(fan_name, 0, 32);
         pal_get_fan_name(i, fan_name);
-        printf("Setting %s speed to %d%\n", fan_name, pwm);
+        printf("Setting Zone %d speed to %d%\n", i, pwm);
       } else
         printf("Error while setting fan speed for Fan %d\n", i);
     }
@@ -124,10 +145,16 @@ main(int argc, char **argv) {
 
       // Get the Fan Speed
       ret = pal_get_fan_speed(i, &rpm);
+      pwm = 0;
       if (!ret) {
         memset(fan_name, 0, 32);
         pal_get_fan_name(i, fan_name);
-        printf("%s Speed: %d RPM\n", fan_name, rpm);
+        if ((pal_get_pwm_value(i, &pwm)) == 0)
+          printf("%s Speed: %d RPM (%d%)\n", fan_name, rpm, pwm);
+        else {
+          printf("Error while getting fan PWM for Fan %d\n", i);
+          printf("%s Speed: %d RPM\n", fan_name, rpm);
+        }
       } else {
         printf("Error while getting fan speed for Fan %d\n", i);
       }

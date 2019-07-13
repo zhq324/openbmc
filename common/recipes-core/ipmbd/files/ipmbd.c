@@ -61,6 +61,7 @@
 #include <stdint.h>
 #include <mqueue.h>
 #include <semaphore.h>
+#include <poll.h>
 #include <signal.h>
 #include "facebook/i2c-dev.h"
 #include "openbmc/ipmi.h"
@@ -73,11 +74,11 @@
 #define MQ_IPMB_REQ "/mq_ipmb_req"
 #define MQ_IPMB_RES "/mq_ipmb_res"
 #define MQ_MAX_MSG_SIZE MAX_BYTES
-#define MQ_MAX_NUM_MSGS 20
+#define MQ_MAX_NUM_MSGS 256
 
 #define SEQ_NUM_MAX 64
 
-#define I2C_RETRIES_MAX 6
+#define I2C_RETRIES_MAX 20
 
 #define IPMB_PKT_MIN_SIZE 6
 
@@ -112,28 +113,10 @@ pthread_mutex_t m_i2c;
 
 static int g_bus_id = 0; // store the i2c bus ID for debug print
 
-static sem_t event_sem;
 static int i2c_slave_read(int fd, uint8_t *buf, uint8_t *len);
 static int i2c_slave_open(uint8_t bus_num);
+static int bic_up_flag = 0;
 
-void sig_handler_term(int sig)
-{
-  int fd;
-  uint8_t buf[MAX_BYTES] = { 0 };
-  uint8_t len;
-  fd = i2c_slave_open(g_bus_id);
-  if (fd < 0) {
-      syslog(LOG_WARNING, "i2c_slave_open fails\n");
-      return;
-  }
-  *((int *)buf) = -0xdeca;
-  i2c_slave_read(fd, buf, &len);
-  exit(0);
-}
-void sig_handler_user(int sig)
-{
-  sem_post(&event_sem);
-}
 
 #ifdef CONFIG_YOSEMITE
 // Returns the payload ID from IPMB bus routing
@@ -259,7 +242,7 @@ i2c_write(int fd, uint8_t *buf, uint8_t len) {
 
   // Setup wait time
   req.tv_sec = 0;
-  req.tv_nsec = 10000000;//10mSec
+  req.tv_nsec = 20000000;//20mSec
 
   pthread_mutex_lock(&m_i2c);
 
@@ -274,7 +257,7 @@ i2c_write(int fd, uint8_t *buf, uint8_t len) {
   }
 
   if (rc < 0) {
-    syslog(LOG_WARNING, "Failed to do raw io");
+    syslog(LOG_WARNING, "bus: %d, Failed to do raw io", g_bus_id);
     pthread_mutex_unlock(&m_i2c);
     return -1;
   }
@@ -461,7 +444,9 @@ ipmb_req_handler(void *bus_num) {
 #endif
 
      // Send response back
-     i2c_write(fd, &txbuf[1], tlen+IPMB_HDR_SIZE-1);
+    if (!bic_up_flag) {
+      i2c_write(fd, &txbuf[1], tlen+IPMB_HDR_SIZE-1);
+    }
   }
 }
 
@@ -566,26 +551,15 @@ ipmb_rx_handler(void *bus_num) {
     syslog(LOG_WARNING, "mq_open res fails\n");
     goto cleanup;
   }
-  sem_init(&event_sem, 0, 0);
 
-  struct sigaction usr_action;
-  int pid;
-  struct timespec ts;
-  sigemptyset(&usr_action.sa_mask);
-  usr_action.sa_flags = 0;
-  usr_action.sa_handler = sig_handler_term;
-  sigaction (SIGTERM, &usr_action, NULL);
-  usr_action.sa_handler = sig_handler_user;
-  sigaction (SIGUSR1, &usr_action, NULL);
-  pid = getpid();
+  struct pollfd ufds[1];
+  ufds[0].fd= fd;
+  ufds[0].events = POLLIN;
   // Loop that retrieves messages
   while (1) {
     // Read messages from i2c driver
-     *((int *)buf) = pid;
      if (i2c_slave_read(fd, buf, &len) < 0) {
-      clock_gettime(CLOCK_REALTIME, &ts);
-      ts.tv_nsec += 10000000;
-      sem_timedwait(&event_sem, &ts);
+      poll(ufds, 1, 50);
       continue;
     }
 
@@ -720,7 +694,7 @@ ipmb_handle (int fd, unsigned char *request, unsigned char req_len,
   int ret;
   ret = sem_timedwait(&g_seq.seq[index].s_seq, &ts);
   if (ret == -1) {
-    syslog(LOG_DEBUG, "No response for sequence number: %d\n", index);
+    syslog(LOG_DEBUG, "bus: %d, No response for sequence number: %d\n", g_bus_id, index);
     *res_len = 0;
   }
 
@@ -756,6 +730,11 @@ void
   n = recv(sock, req_buf, sizeof(req_buf), 0);
   if (n <= 0) {
       syslog(LOG_WARNING, "ipmbd: recv() failed with %d\n", n);
+      goto conn_cleanup;
+  }
+
+  if (bic_up_flag) {
+    if (!((req_buf[1] == 0xe0) && (req_buf[5] == CMD_OEM_1S_ENABLE_BIC_UPDATE)))
       goto conn_cleanup;
   }
 
@@ -866,6 +845,11 @@ ipmb_lib_handler(void *bus_num) {
   return 0;
 }
 
+static void ipmbd_sig_hndlr(int sig)
+{
+  bic_up_flag = (sig == SIGUSR1)?1:0;
+}
+
 int
 main(int argc, char * const argv[]) {
   pthread_t tid_ipmb_rx;
@@ -878,11 +862,12 @@ main(int argc, char * const argv[]) {
   char mq_ipmb_req[64] = {0};
   char mq_ipmb_res[64] = {0};
   int rc = 0;
+  struct sigaction sa;
 
   daemon(1, 0);
   openlog("ipmbd", LOG_CONS, LOG_DAEMON);
 
-  if (argc != 2) {
+  if ((argc != 2) && (argc != 3)) {
     syslog(LOG_WARNING, "ipmbd: Usage: ipmbd <bus#>");
     exit(1);
   }
@@ -892,7 +877,19 @@ main(int argc, char * const argv[]) {
 
   syslog(LOG_WARNING, "ipmbd: bus#:%d\n", ipmb_bus_num);
 
+  if( (argc == 3) && !(strcmp(argv[2] ,"bicup")) ){
+	bic_up_flag = 1;
+  }else{
+	bic_up_flag = 0;
+  }
+
   pthread_mutex_init(&m_i2c, NULL);
+
+  sa.sa_handler = ipmbd_sig_hndlr;
+  sa.sa_flags = 0;
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGUSR1, &sa, NULL);
+  sigaction(SIGUSR2, &sa, NULL);
 
   // Create Message Queues for Request Messages and Response Messages
   attr.mq_flags = 0;
@@ -978,3 +975,4 @@ cleanup:
 
   return 0;
 }
+

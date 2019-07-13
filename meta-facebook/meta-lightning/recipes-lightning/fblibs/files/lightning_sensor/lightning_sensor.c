@@ -37,6 +37,10 @@
 #define I2C_DEV_PDPB      "/dev/i2c-6"
 #define I2C_DEV_FCB       "/dev/i2c-5"
 
+#define I2C_BUS_PEB_DIR "/sys/class/i2c-adapter/i2c-4/"
+#define I2C_BUS_PDPB_DIR "/sys/class/i2c-adapter/i2c-6/"
+#define I2C_BUS_FCB_DIR "/sys/class/i2c-adapter/i2c-5/"
+
 #define I2C_ADDR_PEB_HSC 0x11
 
 #define I2C_ADDR_PDPB_ADC  0x48
@@ -56,6 +60,16 @@
 #define MAX_SENSOR_NUM 0xFF
 #define ALL_BYTES 0xFF
 #define LAST_REC_ID 0xFFFF
+
+#define PEB_TMP75_U136_DEVICE I2C_BUS_PEB_DIR "4-004d"
+#define PEB_TMP75_U134_DEVICE I2C_BUS_PEB_DIR "4-004a"
+
+#define PDPB_TMP75_U47_DEVICE I2C_BUS_PDPB_DIR "6-0049"
+#define PDPB_TMP75_U48_DEVICE I2C_BUS_PDPB_DIR "6-004a"
+#define PDPB_TMP75_U49_DEVICE I2C_BUS_PDPB_DIR "6-004b"
+#define PDPB_TMP75_U51_DEVICE I2C_BUS_PDPB_DIR "6-004c"
+
+#define FAN_REGISTER 0x80
 
 enum temp_sensor_type {
   LOCAL_SENSOR = 0,
@@ -82,6 +96,7 @@ enum nct7904_registers {
   NCT7904_VSEN7 = 0x4C,
   NCT7904_VSEN9 = 0x50,
   NCT7904_3VDD = 0x5C,
+  NCT7904_MONITOR_FLAG = 0xBA,
   NCT7904_BANK_SEL = 0xFF,
 };
 
@@ -124,8 +139,8 @@ enum adc_pins {
   ADC_PIN7,
 };
 
-// List of PEB sensors to be monitored
-const uint8_t peb_sensor_list[] = {
+// List of PEB sensors to be monitored (PMC)
+const uint8_t peb_sensor_pmc_list[] = {
   PEB_SENSOR_ADC_P12V,
   PEB_SENSOR_ADC_P5V,
   PEB_SENSOR_ADC_P3V3_STBY,
@@ -138,20 +153,29 @@ const uint8_t peb_sensor_list[] = {
   PEB_SENSOR_HSC_OUT_CURR,
   PEB_SENSOR_HSC_IN_POWER,
   PEB_SENSOR_PCIE_SW_TEMP,
-  PEB_SENSOR_PCIE_SW_FRONT_TEMP,
-  PEB_SENSOR_PCIE_SW_REAR_TEMP,
-  PEB_SENSOR_LEFT_CONN_TEMP,
-  PEB_SENSOR_RIGHT_CONN_TEMP,
-  PEB_SENSOR_BMC_TEMP,
-  PEB_SENSOR_HSC_TEMP,
+  PEB_SENSOR_SYS_INLET_TEMP,
 };
 
-// List of PDPB sensors to be monitored
-const uint8_t pdpb_sensor_list[] = {
+// List of PEB sensors to be monitored (PLX)
+const uint8_t peb_sensor_plx_list[] = {
+  PEB_SENSOR_ADC_P12V,
+  PEB_SENSOR_ADC_P5V,
+  PEB_SENSOR_ADC_P3V3_STBY,
+  PEB_SENSOR_ADC_P1V8_STBY,
+  PEB_SENSOR_ADC_P1V53,
+  PEB_SENSOR_ADC_P0V9,
+  PEB_SENSOR_ADC_P0V9_E,
+  PEB_SENSOR_ADC_P1V26,
+  PEB_SENSOR_HSC_IN_VOLT,
+  PEB_SENSOR_HSC_OUT_CURR,
+  PEB_SENSOR_HSC_IN_POWER,
+  PEB_SENSOR_SYS_INLET_TEMP,
+};
+
+// List of U.2 SKU PDPB sensors to be monitored
+const uint8_t pdpb_u2_sensor_list[] = {
   PDPB_SENSOR_P12V,
   PDPB_SENSOR_P3V3,
-  PDPB_SENSOR_P2V5,
-  PDPB_SENSOR_P12V_SSD,
   PDPB_SENSOR_LEFT_REAR_TEMP,
   PDPB_SENSOR_LEFT_FRONT_TEMP,
   PDPB_SENSOR_RIGHT_REAR_TEMP,
@@ -173,6 +197,46 @@ const uint8_t pdpb_sensor_list[] = {
   PDPB_SENSOR_FLASH_TEMP_14,
 };
 
+// List of M.2 SKU PDPB sensors to be monitored
+const uint8_t pdpb_m2_sensor_list[] = {
+  PDPB_SENSOR_P12V,
+  PDPB_SENSOR_P3V3,
+  PDPB_SENSOR_LEFT_REAR_TEMP,
+  PDPB_SENSOR_LEFT_FRONT_TEMP,
+  PDPB_SENSOR_RIGHT_REAR_TEMP,
+  PDPB_SENSOR_RIGHT_FRONT_TEMP,
+  PDPB_SENSOR_FLASH_TEMP_0,
+  PDPB_SENSOR_FLASH_TEMP_1,
+  PDPB_SENSOR_FLASH_TEMP_2,
+  PDPB_SENSOR_FLASH_TEMP_3,
+  PDPB_SENSOR_FLASH_TEMP_4,
+  PDPB_SENSOR_FLASH_TEMP_5,
+  PDPB_SENSOR_FLASH_TEMP_6,
+  PDPB_SENSOR_FLASH_TEMP_7,
+  PDPB_SENSOR_FLASH_TEMP_8,
+  PDPB_SENSOR_FLASH_TEMP_9,
+  PDPB_SENSOR_FLASH_TEMP_10,
+  PDPB_SENSOR_FLASH_TEMP_11,
+  PDPB_SENSOR_FLASH_TEMP_12,
+  PDPB_SENSOR_FLASH_TEMP_13,
+  PDPB_SENSOR_FLASH_TEMP_14,
+  PDPB_SENSOR_AMB_TEMP_0,
+  PDPB_SENSOR_AMB_TEMP_1,
+  PDPB_SENSOR_AMB_TEMP_2,
+  PDPB_SENSOR_AMB_TEMP_3,
+  PDPB_SENSOR_AMB_TEMP_4,
+  PDPB_SENSOR_AMB_TEMP_5,
+  PDPB_SENSOR_AMB_TEMP_6,
+  PDPB_SENSOR_AMB_TEMP_7,
+  PDPB_SENSOR_AMB_TEMP_8,
+  PDPB_SENSOR_AMB_TEMP_9,
+  PDPB_SENSOR_AMB_TEMP_10,
+  PDPB_SENSOR_AMB_TEMP_11,
+  PDPB_SENSOR_AMB_TEMP_12,
+  PDPB_SENSOR_AMB_TEMP_13,
+  PDPB_SENSOR_AMB_TEMP_14,
+};
+
 // List of NIC sensors to be monitored
 const uint8_t fcb_sensor_list[] = {
   FCB_SENSOR_P12V_AUX,
@@ -184,6 +248,18 @@ const uint8_t fcb_sensor_list[] = {
   FCB_SENSOR_HSC_IN_POWER,
   FCB_SENSOR_BJT_TEMP_1,
   FCB_SENSOR_BJT_TEMP_2,
+  FCB_SENSOR_FAN1_FRONT_SPEED,
+  FCB_SENSOR_FAN1_REAR_SPEED,
+  FCB_SENSOR_FAN2_FRONT_SPEED,
+  FCB_SENSOR_FAN2_REAR_SPEED,
+  FCB_SENSOR_FAN3_FRONT_SPEED,
+  FCB_SENSOR_FAN3_REAR_SPEED,
+  FCB_SENSOR_FAN4_FRONT_SPEED,
+  FCB_SENSOR_FAN4_REAR_SPEED,
+  FCB_SENSOR_FAN5_FRONT_SPEED,
+  FCB_SENSOR_FAN5_REAR_SPEED,
+  FCB_SENSOR_FAN6_FRONT_SPEED,
+  FCB_SENSOR_FAN6_REAR_SPEED,
 };
 
 static sensor_info_t g_sinfo[MAX_NUM_FRUS][MAX_SENSOR_NUM] = {0};
@@ -193,120 +269,215 @@ float pdpb_sensor_threshold[MAX_SENSOR_NUM][MAX_SENSOR_THRESHOLD + 1] = {0};
 float fcb_sensor_threshold[MAX_SENSOR_NUM][MAX_SENSOR_THRESHOLD + 1] = {0};
 
 static void
+assign_sensor_threshold(uint8_t fru, uint8_t snr_num, float ucr, float unc,
+    float unr, float lcr, float lnc, float lnr, float pos_hyst, float neg_hyst) {
+
+  int ret;
+  switch(fru) {
+    case FRU_PEB:
+      peb_sensor_threshold[snr_num][UCR_THRESH] = ucr;
+      peb_sensor_threshold[snr_num][UNC_THRESH] = unc;
+      peb_sensor_threshold[snr_num][UNR_THRESH] = unr;
+      peb_sensor_threshold[snr_num][LCR_THRESH] = lcr;
+      peb_sensor_threshold[snr_num][LNC_THRESH] = lnc;
+      peb_sensor_threshold[snr_num][LNR_THRESH] = lnr;
+      peb_sensor_threshold[snr_num][POS_HYST] = pos_hyst;
+      peb_sensor_threshold[snr_num][NEG_HYST] = neg_hyst;
+      break;
+    case FRU_PDPB:
+      pdpb_sensor_threshold[snr_num][UCR_THRESH] = ucr;
+      pdpb_sensor_threshold[snr_num][UNC_THRESH] = unc;
+      pdpb_sensor_threshold[snr_num][UNR_THRESH] = unr;
+      pdpb_sensor_threshold[snr_num][LCR_THRESH] = lcr;
+      pdpb_sensor_threshold[snr_num][LNC_THRESH] = lnc;
+      pdpb_sensor_threshold[snr_num][LNR_THRESH] = lnr;
+      pdpb_sensor_threshold[snr_num][POS_HYST] = pos_hyst;
+      pdpb_sensor_threshold[snr_num][NEG_HYST] = neg_hyst;
+      break;
+    case FRU_FCB:
+      fcb_sensor_threshold[snr_num][UCR_THRESH] = ucr;
+      fcb_sensor_threshold[snr_num][UNC_THRESH] = unc;
+      fcb_sensor_threshold[snr_num][UNR_THRESH] = unr;
+      fcb_sensor_threshold[snr_num][LCR_THRESH] = lcr;
+      fcb_sensor_threshold[snr_num][LNC_THRESH] = lnc;
+      fcb_sensor_threshold[snr_num][LNR_THRESH] = lnr;
+      fcb_sensor_threshold[snr_num][POS_HYST] = pos_hyst;
+      fcb_sensor_threshold[snr_num][NEG_HYST] = neg_hyst;
+      break;
+  }
+}
+
+static void
 sensor_thresh_array_init() {
 
   static bool init_done = false;
+  uint8_t ssd_sku = 0;
+  uint8_t ssd_vendor = 0;
+  int ret;
 
   if (init_done)
     return;
 
   int i;
 
-  // PEB SENSOR
-  peb_sensor_threshold[PEB_SENSOR_HSC_IN_VOLT][UCR_THRESH] = 14.34; // TODO: HACK Value
-  peb_sensor_threshold[PEB_SENSOR_HSC_OUT_CURR][UCR_THRESH] = 10.5; // TODO: HACK Value
-  peb_sensor_threshold[PEB_SENSOR_HSC_TEMP][UCR_THRESH] = 50; // TODO: HACK value
-  peb_sensor_threshold[PEB_SENSOR_HSC_IN_POWER][UCR_THRESH] = 150; // TODO: HACK Value
-  peb_sensor_threshold[PEB_SENSOR_ADC_P12V][UCR_THRESH] = 16.25; // Abnormal
-  peb_sensor_threshold[PEB_SENSOR_ADC_P5V][UCR_THRESH] = 10.66; // Abnormal
-  peb_sensor_threshold[PEB_SENSOR_ADC_P3V3_STBY][UCR_THRESH] = 4.95; // Abnormal
-  peb_sensor_threshold[PEB_SENSOR_ADC_P1V8_STBY][UCR_THRESH] = 2.46; // Abnormal
-  peb_sensor_threshold[PEB_SENSOR_ADC_P1V53][UCR_THRESH] = 2.46; // Abnormal
-  peb_sensor_threshold[PEB_SENSOR_ADC_P0V9][UCR_THRESH] = 2.46; // Abnormal
-  peb_sensor_threshold[PEB_SENSOR_ADC_P0V9_E][UCR_THRESH] = 2.46; // Abnormal
-  peb_sensor_threshold[PEB_SENSOR_ADC_P1V26][UCR_THRESH] = 2.46; // Abnormal
+  // PEB HSC SENSORS
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_HSC_IN_VOLT,
+      13.2, 0, 0, 10.8, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_HSC_OUT_CURR,
+      8, 0, 0, 0, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_HSC_IN_POWER,
+      96, 0, 0, 0, 0, 0, 0, 0);
 
   // PEB TEMP SENSORS
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_TEMP][UCR_THRESH] = 100;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_FRONT_TEMP][UCR_THRESH] = 50;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_REAR_TEMP][UCR_THRESH] = 50;
-  peb_sensor_threshold[PEB_SENSOR_LEFT_CONN_TEMP][UCR_THRESH] = 50;
-  peb_sensor_threshold[PEB_SENSOR_RIGHT_CONN_TEMP][UCR_THRESH] = 50;
-  peb_sensor_threshold[PEB_SENSOR_BMC_TEMP][UCR_THRESH] = 50;
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_PCIE_SW_TEMP,
+      95, 93, 0, 5, 10, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_SYS_INLET_TEMP,
+      50, 45, 0, 5, 10, 0, 0, 0);
 
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_TEMP][UNC_THRESH] = 95;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_FRONT_TEMP][UNC_THRESH] = 45;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_REAR_TEMP][UNC_THRESH] = 45;
-  peb_sensor_threshold[PEB_SENSOR_LEFT_CONN_TEMP][UNC_THRESH] = 45;
-  peb_sensor_threshold[PEB_SENSOR_RIGHT_CONN_TEMP][UNC_THRESH] = 45;
-  peb_sensor_threshold[PEB_SENSOR_BMC_TEMP][UNC_THRESH] = 45;
+  // PEB VOLT SENSORS
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P12V,
+      13.63, 13.38, 0, 11.25, 11.50, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P5V,
+      5.5, 5.4, 0, 4.5, 4.6, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P3V3_STBY,
+      3.63, 3.56, 0, 3.02, 3.09, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P1V8_STBY,
+      1.98, 1.94, 0, 1.62, 1.66, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P1V53,
+      1.68, 1.65, 0, 1.4, 1.43, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P0V9,
+      0.99, 0.97, 0, 0.81, 0.83, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P0V9_E,
+      0.99, 0.97, 0, 0.81, 0.83, 0, 0, 0);
+  assign_sensor_threshold(FRU_PEB, PEB_SENSOR_ADC_P1V26,
+      1.39, 1.36, 0, 1.13, 1.16, 0, 0, 0);
 
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_TEMP][LNC_THRESH] = 10;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_FRONT_TEMP][LNC_THRESH] = 10;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_REAR_TEMP][LNC_THRESH] = 10;
-  peb_sensor_threshold[PEB_SENSOR_LEFT_CONN_TEMP][LNC_THRESH] = 10;
-  peb_sensor_threshold[PEB_SENSOR_RIGHT_CONN_TEMP][LNC_THRESH] = 10;
-  peb_sensor_threshold[PEB_SENSOR_BMC_TEMP][LNC_THRESH] = 10;
-
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_TEMP][LCR_THRESH] = 5;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_FRONT_TEMP][LCR_THRESH] = 5;
-  peb_sensor_threshold[PEB_SENSOR_PCIE_SW_REAR_TEMP][LCR_THRESH] = 5;
-  peb_sensor_threshold[PEB_SENSOR_LEFT_CONN_TEMP][LCR_THRESH] = 5;
-  peb_sensor_threshold[PEB_SENSOR_RIGHT_CONN_TEMP][LCR_THRESH] = 5;
-  peb_sensor_threshold[PEB_SENSOR_BMC_TEMP][LCR_THRESH] = 5;
-
-  // PDPB SENSORS
-  pdpb_sensor_threshold[PDPB_SENSOR_P12V][UCR_THRESH] = 13.728;
-  pdpb_sensor_threshold[PDPB_SENSOR_P3V3][UCR_THRESH] = 4.192;
-  pdpb_sensor_threshold[PDPB_SENSOR_P2V5][UCR_THRESH] = 2.72;
-  pdpb_sensor_threshold[PDPB_SENSOR_P12V_SSD][UCR_THRESH] = 13.728;
+  // PDPB VOLT SENSORS
+  assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_P12V,
+      13.63, 13.38, 0, 11.25, 11.5, 0, 0, 0);
+  assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_P3V3,
+      3.63, 3.56, 0, 2.98, 3.05, 0, 0, 0);
 
   // PDPB TEMP SENSORS
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_REAR_TEMP][UCR_THRESH] = 55;
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_FRONT_TEMP][UCR_THRESH] = 55;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_REAR_TEMP][UCR_THRESH] = 55;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_FRONT_TEMP][UCR_THRESH] = 55;
+  assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_LEFT_REAR_TEMP,
+      55, 50, 0, 5, 10, 0, 0, 0);
+  assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_LEFT_FRONT_TEMP,
+      55, 50, 0, 5, 10, 0, 0, 0);
+  assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_RIGHT_REAR_TEMP,
+      55, 50, 0, 5, 10, 0, 0, 0);
+  assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_RIGHT_FRONT_TEMP,
+      55, 50, 0, 5, 10, 0, 0, 0);
 
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_REAR_TEMP][UNC_THRESH] = 50;
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_FRONT_TEMP][UNC_THRESH] = 50;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_REAR_TEMP][UNC_THRESH] = 50;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_FRONT_TEMP][UNC_THRESH] = 50;
-
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_REAR_TEMP][LNC_THRESH] = 10;
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_FRONT_TEMP][LNC_THRESH] = 10;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_REAR_TEMP][LNC_THRESH] = 10;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_FRONT_TEMP][LNC_THRESH] = 10;
-
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_REAR_TEMP][LCR_THRESH] = 5;
-  pdpb_sensor_threshold[PDPB_SENSOR_LEFT_FRONT_TEMP][LCR_THRESH] = 5;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_REAR_TEMP][LCR_THRESH] = 5;
-  pdpb_sensor_threshold[PDPB_SENSOR_RIGHT_FRONT_TEMP][LCR_THRESH] = 5;
-
-  for (i = 0; i < lightning_flash_cnt; i++) {
-    pdpb_sensor_threshold[PDPB_SENSOR_FLASH_TEMP_0 + i][UCR_THRESH] = 70;
-    pdpb_sensor_threshold[PDPB_SENSOR_FLASH_TEMP_0 + i][UNC_THRESH] = 65;
-    pdpb_sensor_threshold[PDPB_SENSOR_FLASH_TEMP_0 + i][LNC_THRESH] = 10;
-    pdpb_sensor_threshold[PDPB_SENSOR_FLASH_TEMP_0 + i][LCR_THRESH] = 5;
+  // PDPB SSD and AMBIENT TEMP SENSORS
+  ret = lightning_ssd_sku(&ssd_sku);
+  if (ret < 0) {
+    syslog(LOG_DEBUG, "%s() get SSD SKU failed", __func__);
+  }
+  ret = lightning_ssd_vendor(&ssd_vendor);
+  if (ret < 0) {
+    syslog(LOG_DEBUG, "%s() get SSD vendor failed", __func__);
   }
 
-  // FCB SENSORS
-  fcb_sensor_threshold[FCB_SENSOR_P12V_AUX][UCR_THRESH] = 13.75;
-  fcb_sensor_threshold[FCB_SENSOR_P12VL][UCR_THRESH] = 13.75;
-  fcb_sensor_threshold[FCB_SENSOR_P12VU][UCR_THRESH] = 13.75;
-  fcb_sensor_threshold[FCB_SENSOR_P3V3][UCR_THRESH] = 3.63;
-  fcb_sensor_threshold[FCB_SENSOR_HSC_IN_VOLT][UCR_THRESH] = 100; // Missing
-  fcb_sensor_threshold[FCB_SENSOR_HSC_OUT_CURR][UCR_THRESH] = 60;
-  fcb_sensor_threshold[FCB_SENSOR_HSC_IN_POWER][UCR_THRESH] = 1020;
+  for (i = 0; i < lightning_flash_cnt; i++) {
+    if(ssd_sku == U2_SKU) {
+      // Intel U.2 threshold
+      if (ssd_vendor == INTEL)
+        assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_FLASH_TEMP_0 + i,
+            66, 64, 0, 5, 10, 0, 0, 0);
+      // Samsung U.2 threshold
+      else if(ssd_vendor == SAMSUNG)
+        assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_FLASH_TEMP_0 + i,
+            78, 76, 0, 5, 10, 0, 0, 0);
+      // Default threshold
+      else
+        assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_FLASH_TEMP_0 + i,
+            78, 76, 0, 5, 10, 0, 0, 0);
 
-  // FCB TEMP SENSORS
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_1][UCR_THRESH] = 55;
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_2][UCR_THRESH] = 55;
+    } else if (ssd_sku == M2_SKU) {
+      // Seagate M.2 threshold
+      if(ssd_vendor == SEAGATE)
+        assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_FLASH_TEMP_0 + i,
+            78, 76, 0, 5, 10, 0, 0, 0);
+      // Samsung M.2 threshold
+      else if (ssd_vendor == SAMSUNG)
+        assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_FLASH_TEMP_0 + i,
+            78, 76, 0, 5, 10, 0, 0, 0);
+      // Default threshold
+      else
+        assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_FLASH_TEMP_0 + i,
+            78, 76, 0, 5, 10, 0, 0, 0);
 
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_1][UNC_THRESH] = 50;
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_2][UNC_THRESH] = 50;
+      // AMBIENT SENSORS
+      assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_AMB_TEMP_0 + i,
+            65, 60, 0, 5, 10, 0, 0, 0);
+    } else {
+      // Default threshold
+      assign_sensor_threshold(FRU_PDPB, PDPB_SENSOR_FLASH_TEMP_0 + i,
+            78, 76, 0, 5, 10, 0, 0, 0);
+    }
 
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_1][LNC_THRESH] = 10;
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_2][LNC_THRESH] = 10;
+  }
 
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_1][LCR_THRESH] = 5;
-  fcb_sensor_threshold[FCB_SENSOR_BJT_TEMP_2][LCR_THRESH] = 5;
+  // FCB Volt Sensors
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_P12V_AUX,
+      13.63, 13.38, 0, 11.25, 11.5, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_P12VL,
+      13.63, 13.38, 0, 11.25, 11.5, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_P12VU,
+      13.63, 13.38, 0, 11.25, 11.5, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_P3V3,
+      3.63, 3.56, 0, 3.1, 3.16, 0, 0, 0);
+
+  // FCB HSC Sensors
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_HSC_IN_VOLT,
+      13.75, 0, 0, 11.25, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_HSC_OUT_CURR,
+      60, 0, 0, 0, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_HSC_IN_POWER,
+      1020, 0, 0, 0, 0, 0, 0, 0);
+
+  // FCB Temp Sensor
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_BJT_TEMP_1,
+      55, 50, 0, 5, 10, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_BJT_TEMP_2,
+      55, 50, 0, 5, 10, 0, 0, 0);
+
+  // FCB Fan Speed
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN1_FRONT_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN1_REAR_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN2_FRONT_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN2_REAR_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN3_FRONT_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN3_REAR_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN4_FRONT_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN4_REAR_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN5_FRONT_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN5_REAR_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN6_FRONT_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
+  assign_sensor_threshold(FRU_FCB, FCB_SENSOR_FAN6_REAR_SPEED,
+      0, 0, 0, 400, 0, 0, 0, 0);
 
   init_done = true;
 }
 
-size_t peb_sensor_cnt = sizeof(peb_sensor_list)/sizeof(uint8_t);
+size_t peb_sensor_pmc_cnt = sizeof(peb_sensor_pmc_list)/sizeof(uint8_t);
 
-size_t pdpb_sensor_cnt = sizeof(pdpb_sensor_list)/sizeof(uint8_t);
+size_t peb_sensor_plx_cnt = sizeof(peb_sensor_plx_list)/sizeof(uint8_t);
+
+size_t pdpb_u2_sensor_cnt = sizeof(pdpb_u2_sensor_list)/sizeof(uint8_t);
+
+size_t pdpb_m2_sensor_cnt = sizeof(pdpb_m2_sensor_list)/sizeof(uint8_t);
 
 size_t fcb_sensor_cnt = sizeof(fcb_sensor_list)/sizeof(uint8_t);
 
@@ -321,6 +492,11 @@ msleep(int msec) {
   while(nanosleep(&req, &req) == -1 && errno == EINTR) {
     continue;
   }
+}
+
+int32_t signextend32(uint32_t val, int idx) {
+    uint8_t shift = 31 - idx;
+      return (int32_t)(val << shift) >> shift;
 }
 
 static int
@@ -384,23 +560,29 @@ read_device_float(const char *device, float *value) {
 static int
 read_flash_temp(uint8_t flash_num, float *value) {
 
-  return lightning_flash_temp_read(lightning_flash_list[flash_num], value);
+  uint8_t sku;
+  int ret;
+
+  ret = lightning_ssd_sku(&sku);
+
+  if (ret < 0) {
+    syslog(LOG_DEBUG, "%s(): lightning_ssd_sku failed", __func__);
+    return -1;
+  }
+  if (sku == U2_SKU)
+    return lightning_u2_flash_temp_read(lightning_flash_list[flash_num], value);
+  else if (sku == M2_SKU)
+    return lightning_m2_flash_temp_read(lightning_flash_list[flash_num], value);
+  else {
+    syslog(LOG_DEBUG, "%s(): unknown ssd sku", __func__);
+    return -1;
+  }
 }
 
 static int
-read_temp(const char *device, float *value) {
-  char full_name[LARGEST_DEVICE_NAME + 1];
-  int tmp;
+read_m2_amb_temp(uint8_t flash_num, float *value) {
 
-  snprintf(
-      full_name, LARGEST_DEVICE_NAME, "%s/temp1_input", device);
-  if (read_device(full_name, &tmp)) {
-    return -1;
-  }
-
-  *value = ((float)tmp)/UNIT_DIV;
-
-  return 0;
+  return lightning_m2_amb_temp_read(lightning_flash_list[flash_num], value);
 }
 
 static int
@@ -413,9 +595,25 @@ read_adc_value(const int pin, const char *device, float *value) {
   return read_device_float(full_name, value);
 }
 
-
+/* Function to read the temp from the sysfs */
 static int
-read_tmp75_value(char *device, uint8_t addr, uint8_t type, float *value) {
+read_tmp75_temp_value(const char *device, float *value) {
+  char full_name[LARGEST_DEVICE_NAME + 1];
+  int tmp;
+
+  snprintf(full_name, LARGEST_DEVICE_NAME, "%s/temp1_input", device);
+  if (read_device(full_name, &tmp)) {
+    return -1;
+  }
+
+  *value = ((float)tmp)/UNIT_DIV;
+
+  return 0;
+}
+
+/* Function to read the temp directly from the i2c dev */
+static int
+read_temp_value(char *device, uint8_t addr, uint8_t type, float *value) {
 
   int dev;
   int ret;
@@ -423,14 +621,14 @@ read_tmp75_value(char *device, uint8_t addr, uint8_t type, float *value) {
 
   dev = open(device, O_RDWR);
   if (dev < 0) {
-    syslog(LOG_ERR, "read_tmp75_value: open() failed");
+    syslog(LOG_ERR, "read_temp_value: open() failed");
     return -1;
   }
 
   /* Assign the i2c device address */
   ret = ioctl(dev, I2C_SLAVE, addr);
   if (ret < 0) {
-    syslog(LOG_ERR, "read_tmp75_value: ioctl() assigning i2c addr failed");
+    syslog(LOG_ERR, "read_temp_value: ioctl() assigning i2c addr failed");
     close(dev);
     return -1;
   }
@@ -439,7 +637,7 @@ read_tmp75_value(char *device, uint8_t addr, uint8_t type, float *value) {
   res = i2c_smbus_read_word_data(dev, type);
   if (res < 0) {
     close(dev);
-    syslog(LOG_ERR, "read_tmp75_value: i2c_smbus_read_word_data failed");
+    syslog(LOG_ERR, "read_temp_value: i2c_smbus_read_word_data failed");
     return -1;
   }
 
@@ -457,9 +655,25 @@ read_tmp75_value(char *device, uint8_t addr, uint8_t type, float *value) {
     *value = (float) (0xFFF - res + 1) * (-1) * TPM75_TEMP_RESOLUTION;
   } else {
     /* Out of range [128C to -55C] */
-    syslog(LOG_WARNING, "read_tmp75_value: invalid res value = 0x%X", res);
+    syslog(LOG_WARNING, "read_temp_value: invalid res value = 0x%X", res);
     return -1;
   }
+
+  return 0;
+}
+
+static int
+read_temp(const char *device, float *value) {
+  char full_name[LARGEST_DEVICE_NAME + 1];
+  int tmp;
+
+  snprintf(
+      full_name, LARGEST_DEVICE_NAME, "%s/temp1_input", device);
+  if (read_device(full_name, &tmp)) {
+    return -1;
+  }
+
+  *value = ((float)tmp)/UNIT_DIV;
 
   return 0;
 }
@@ -495,16 +709,16 @@ read_hsc_value(uint8_t reg, char *device, uint8_t addr, uint8_t cntlr, float *va
 
   close(dev);
 
-  // All Parameters use only bits [11:0]
-  res &= 0xFFF;
 
   switch(reg) {
     case HSC_IN_VOLT:
+      res &= 0xFFF; // This Parameter uses bits [11:0]
       if (cntlr == HSC_ADM1276 || cntlr == HSC_ADM1278) {
         *value = (1.0/19599) * ((res * 100) - 0);
       }
       break;
     case HSC_OUT_CURR:
+      res &= 0xFFF; // This Parameter uses bits [11:0]
       if (cntlr == HSC_ADM1276) {
         *value = ((res * 10) - 20475) / (807 * 0.1667);
       } else if (cntlr == HSC_ADM1278) {
@@ -512,16 +726,20 @@ read_hsc_value(uint8_t reg, char *device, uint8_t addr, uint8_t cntlr, float *va
       }
       break;
     case HSC_IN_POWER:
+      res &= 0xFFFF; // This Parameter uses bits [15:0]
       if (cntlr == HSC_ADM1276) {
         *value = ((res * 100) - 0) / (6043 * 0.1667);
       } else if (cntlr == HSC_ADM1278) {
         *value = (1.0/12246) * ((res * 100) - 0);
       }
+        *value *= 0.99; // This is to compensate the controller reading offset value
       break;
     case HSC_TEMP:
+      res &= 0xFFF; // This Parameter uses bits [11:0]
       if (cntlr == HSC_ADM1278) {
         *value = (1.0/42) * ((res * 10) - 31880);
       }
+        *value *= 0.97; // This is to compensate the controller reading offset value
       break;
     default:
       syslog(LOG_ERR, "read_hsc_value: wrong param");
@@ -540,6 +758,10 @@ read_nct7904_value(uint8_t reg, char *device, uint8_t addr, float *value) {
   int res_h;
   int res_l;
   int bank;
+  int retry;
+  uint8_t peer_tray_exist;
+  uint8_t location;
+  uint8_t monitor_flag;
   uint16_t res;
   float multipler;
 
@@ -562,24 +784,103 @@ read_nct7904_value(uint8_t reg, char *device, uint8_t addr, float *value) {
     if (i2c_smbus_write_byte_data(dev, NCT7904_BANK_SEL, 0) < 0) {
       syslog(LOG_ERR, "read_nct7904_value: i2c_smbus_write_byte_data: "
           "selecting Bank 0 failed");
+      close(dev);
       return -1;
     }
   }
 
-  /* Read the MSB byte for the value */
-  res_h = i2c_smbus_read_byte_data(dev, reg);
+  if (peer_tray_exist) {
+  /* Determine this tray located on upper or lower tray; 0:Upper, 1:Lower*/
+    ret = pal_self_tray_location(&location);
+    if(ret < 0) {
+      syslog(LOG_ERR, "read_nct7904_value: pal_self_tray_location failed");
+      return -1;
+    }
+    retry = 0;
+    while(retry < MAX_RETRY_TIMES) {
+      monitor_flag = i2c_smbus_read_byte_data(dev, NCT7904_MONITOR_FLAG);
 
-  /* Read the LSB byte for the value */
-  res_l = i2c_smbus_read_byte_data(dev, reg + 1);
+      if (UPPER_TRAY == location) {
+        /* BMC can query sensor only when peer BMC's queries are done. */
+        if (LOWER_TRAY_DONE == monitor_flag) {
+          break;
+        } else {
+          retry++;
+        }
+      } else if (LOWER_TRAY == location) {
+        if (UPPER_TRAY_DONE == monitor_flag) {
+          break;
+        } else {
+          retry++;
+        }
+      }
+      msleep(100);
+    }
+  }
+
+  retry = 0;
+  while (retry < MAX_RETRY_TIMES) {
+    /* Read the MSB byte for the value */
+    res_h = i2c_smbus_read_byte_data(dev, reg);
+
+    /* Read the LSB byte for the value */
+    res_l = i2c_smbus_read_byte_data(dev, reg + 1);
+
+    /* Read failed */
+    if ((res_h == -1) || (res_l == -1)) 
+      retry++;
+    else
+      break;
+    
+    msleep(100);
+  }
+
+  if ( (retry >= MAX_RETRY_TIMES) && ((res_h == -1) || (res_l == -1)) ) {
+    syslog(LOG_DEBUG, "%s() i2c_smbus_read_byte_data failed, high byte: 0x%x, low byte: 0x%x", __func__, res_h, res_l);
+    return -1;
+  }
+  
+
+  /* Modify the monitor_flag when the last sensor query finish in this query interval */
+  if (FAN_REGISTER+2 == reg) {
+
+    if (location == UPPER_TRAY) {
+
+      if (i2c_smbus_write_byte_data(dev, NCT7904_MONITOR_FLAG, UPPER_TRAY_DONE) < 0) {
+        syslog(LOG_ERR, "read_nct7904_value: i2c_smbus_write_byte_data: "
+            "upper tray monitor failed");
+        close(dev);
+        return -1;
+      }
+
+    } else {
+
+      if (i2c_smbus_write_byte_data(dev, NCT7904_MONITOR_FLAG, LOWER_TRAY_DONE) < 0) {
+        syslog(LOG_ERR, "read_nct7904_value: i2c_smbus_write_byte_data: "
+            "lower tray monitor failed");
+        close(dev);
+        return -1;
+      }
+
+    }
+  }
 
   close(dev);
 
   /*
-   * Result is 11 bits
+   * Fan speed reading is 13 bits
+   * res[12:5] = res_h[7:0]
+   * res[4:0]  = res_l[4:0]
+   *
+   * Other reading is 11 bits
    * res[10:3] = res_h[7:0]
    * res[2:0] = res_l[2:0]
    */
-  res = (res_h << 3) | (res_l & 0x7);
+  if (reg >= FAN_REGISTER && reg <= FAN_REGISTER+22) {
+    res = ((res_h & 0xFF) << 5) | (res_l & 0x1F);
+  } else {
+    res = ((res_h & 0xFF) << 3) | (res_l & 0x7);
+  }
 
   switch(reg) {
     case NCT7904_TEMP_CH1:
@@ -602,7 +903,23 @@ read_nct7904_value(uint8_t reg, char *device, uint8_t addr, float *value) {
       break;
   }
 
-  *value = (float) (res * multipler);
+  if (reg >= FAN_REGISTER && reg <= FAN_REGISTER+22) {
+    /* fan speed reading */
+    if (res == 0x1fff || res == 0)
+      *value = 0;
+    else
+      *value = (float) (1350000 / res);
+  } else {
+    /* temp sensor reading */
+    if (reg == NCT7904_TEMP_CH1 || reg == NCT7904_TEMP_CH2) {
+
+      *value = signextend32(res, 10) * multipler;
+      if (reg == NCT7904_TEMP_CH2) 
+        *value = *value - 2;
+    /* other sensor reading */
+    } else
+      *value = (float) (res * multipler);
+  }
 
   return 0;
 }
@@ -612,7 +929,7 @@ read_ads1015_value(uint8_t channel, char *device, uint8_t addr, float *value) {
 
   int dev;
   int ret;
-  int32_t config;
+  int32_t config, config2;
   int32_t res;
 
   dev = open(device, O_RDWR);
@@ -666,6 +983,24 @@ read_ads1015_value(uint8_t channel, char *device, uint8_t addr, float *value) {
     return -1;
   }
 
+  /* Read the CONFIG register to check if the conversion completed. */
+  config2 = i2c_smbus_read_word_data(dev, ADS1015_CONFIG);
+  if (config < 0) {
+    close(dev);
+    syslog(LOG_ERR, "read_ads1015_value: i2c_smbus_read_word_data failed");
+    return -1;
+  }
+
+  /*
+   * If the config register value changed after conversion result read,
+   * the result is invalid
+   */
+  if (config2 != config) {
+    close(dev);
+    syslog(LOG_ERR, "read_ads1015_value: config changed while conversion result read");
+    return -1;
+  }
+
   close(dev);
 
   /* Result is read as MSB byte first and LSB byte second. */
@@ -700,11 +1035,7 @@ lightning_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
     case FRU_PEB:
       switch(sensor_num) {
         case PEB_SENSOR_PCIE_SW_TEMP:
-        case PEB_SENSOR_PCIE_SW_FRONT_TEMP:
-        case PEB_SENSOR_PCIE_SW_REAR_TEMP:
-        case PEB_SENSOR_LEFT_CONN_TEMP:
-        case PEB_SENSOR_RIGHT_CONN_TEMP:
-        case PEB_SENSOR_BMC_TEMP:
+        case PEB_SENSOR_SYS_INLET_TEMP:
           sprintf(units, "C");
           break;
         case PEB_SENSOR_HSC_IN_VOLT:
@@ -712,9 +1043,6 @@ lightning_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
           break;
         case PEB_SENSOR_HSC_OUT_CURR:
           sprintf(units, "Amps");
-          break;
-        case PEB_SENSOR_HSC_TEMP:
-          sprintf(units, "C");
           break;
         case PEB_SENSOR_HSC_IN_POWER:
           sprintf(units, "Watts");
@@ -743,6 +1071,12 @@ lightning_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
         break;
       }
 
+      if (sensor_num >= PDPB_SENSOR_AMB_TEMP_0 &&
+          sensor_num < (PDPB_SENSOR_AMB_TEMP_0 + lightning_flash_cnt)) {
+        sprintf(units, "C");
+        break;
+      }
+
       switch(sensor_num) {
         case PDPB_SENSOR_LEFT_REAR_TEMP:
         case PDPB_SENSOR_LEFT_FRONT_TEMP:
@@ -752,8 +1086,6 @@ lightning_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
           break;
         case PDPB_SENSOR_P12V:
         case PDPB_SENSOR_P3V3:
-        case PDPB_SENSOR_P2V5:
-        case PDPB_SENSOR_P12V_SSD:
           sprintf(units, "Volts");
           break;
         default:
@@ -783,7 +1115,20 @@ lightning_sensor_units(uint8_t fru, uint8_t sensor_num, char *units) {
         case FCB_SENSOR_BJT_TEMP_2:
           sprintf(units, "C");
           break;
-
+        case FCB_SENSOR_FAN1_FRONT_SPEED:
+        case FCB_SENSOR_FAN1_REAR_SPEED:
+        case FCB_SENSOR_FAN2_FRONT_SPEED:
+        case FCB_SENSOR_FAN2_REAR_SPEED:
+        case FCB_SENSOR_FAN3_FRONT_SPEED:
+        case FCB_SENSOR_FAN3_REAR_SPEED:
+        case FCB_SENSOR_FAN4_FRONT_SPEED:
+        case FCB_SENSOR_FAN4_REAR_SPEED:
+        case FCB_SENSOR_FAN5_FRONT_SPEED:
+        case FCB_SENSOR_FAN5_REAR_SPEED:
+        case FCB_SENSOR_FAN6_FRONT_SPEED:
+        case FCB_SENSOR_FAN6_REAR_SPEED:
+          sprintf(units, "RPM");
+          break;
         default:
           sprintf(units, "");
           break;
@@ -822,29 +1167,14 @@ lightning_sensor_name(uint8_t fru, uint8_t sensor_num, char *name) {
         case PEB_SENSOR_PCIE_SW_TEMP:
           sprintf(name, "PCIE_SW_TEMP");
           break;
-        case PEB_SENSOR_PCIE_SW_FRONT_TEMP:
-          sprintf(name, "SW_FRONT_TEMP");
-          break;
-        case PEB_SENSOR_PCIE_SW_REAR_TEMP:
-          sprintf(name, "SW_REAR_TEMP");
-          break;
-        case PEB_SENSOR_LEFT_CONN_TEMP:
-          sprintf(name, "LEFT_CONN_TEMP");
-          break;
-        case PEB_SENSOR_RIGHT_CONN_TEMP:
-          sprintf(name, "RIGHT_CONN_TEMP");
-          break;
-        case PEB_SENSOR_BMC_TEMP:
-          sprintf(name, "BMC_TEMP");
+        case PEB_SENSOR_SYS_INLET_TEMP:
+          sprintf(name, "SYS_INLET_TEMP");
           break;
         case PEB_SENSOR_HSC_IN_VOLT:
           sprintf(name, "PEB_HSC_IN_VOLT");
           break;
         case PEB_SENSOR_HSC_OUT_CURR:
           sprintf(name, "PEB_HSC_OUT_CURR");
-          break;
-        case PEB_SENSOR_HSC_TEMP:
-          sprintf(name, "PEB_HSC_TEMP");
           break;
         case PEB_SENSOR_HSC_IN_POWER:
           sprintf(name, "PEB_HSC_IN_POWER");
@@ -887,6 +1217,12 @@ lightning_sensor_name(uint8_t fru, uint8_t sensor_num, char *name) {
         break;
       }
 
+      if (sensor_num >= PDPB_SENSOR_AMB_TEMP_0 &&
+          sensor_num < (PDPB_SENSOR_AMB_TEMP_0 + lightning_flash_cnt)) {
+        sprintf(name, "M.2_Amb_TEMP_%d", sensor_num - PDPB_SENSOR_AMB_TEMP_0);
+        break;
+      }
+
       switch(sensor_num) {
         case PDPB_SENSOR_LEFT_REAR_TEMP:
           sprintf(name, "LEFT_REAR_TEMP");
@@ -905,12 +1241,6 @@ lightning_sensor_name(uint8_t fru, uint8_t sensor_num, char *name) {
           break;
         case PDPB_SENSOR_P3V3:
           sprintf(name, "PDPB_P3V3");
-          break;
-        case PDPB_SENSOR_P2V5:
-          sprintf(name, "PDPB_P2V5");
-          break;
-        case PDPB_SENSOR_P12V_SSD:
-          sprintf(name, "PDPB_P12V_SSD");
           break;
         default:
           sprintf(name, "");
@@ -947,6 +1277,42 @@ lightning_sensor_name(uint8_t fru, uint8_t sensor_num, char *name) {
         case FCB_SENSOR_BJT_TEMP_2:
           sprintf(name, "FCB_BJT_TEMP_2");
           break;
+        case FCB_SENSOR_FAN1_FRONT_SPEED:
+          sprintf(name, "FAN1_FRONT_SPEED");
+          break;
+        case FCB_SENSOR_FAN1_REAR_SPEED:
+          sprintf(name, "FAN1_REAR_SPEED");
+          break;
+        case FCB_SENSOR_FAN2_FRONT_SPEED:
+          sprintf(name, "FAN2_FRONT_SPEED");
+          break;
+        case FCB_SENSOR_FAN2_REAR_SPEED:
+          sprintf(name, "FAN2_REAR_SPEED");
+          break;
+        case FCB_SENSOR_FAN3_FRONT_SPEED:
+          sprintf(name, "FAN3_FRONT_SPEED");
+          break;
+        case FCB_SENSOR_FAN3_REAR_SPEED:
+          sprintf(name, "FAN3_REAR_SPEED");
+          break;
+        case FCB_SENSOR_FAN4_FRONT_SPEED:
+          sprintf(name, "FAN4_FRONT_SPEED");
+          break;
+        case FCB_SENSOR_FAN4_REAR_SPEED:
+          sprintf(name, "FAN4_REAR_SPEED");
+          break;
+        case FCB_SENSOR_FAN5_FRONT_SPEED:
+          sprintf(name, "FAN5_FRONT_SPEED");
+          break;
+        case FCB_SENSOR_FAN5_REAR_SPEED:
+          sprintf(name, "FAN5_REAR_SPEED");
+          break;
+        case FCB_SENSOR_FAN6_FRONT_SPEED:
+          sprintf(name, "FAN6_FRONT_SPEED");
+          break;
+        case FCB_SENSOR_FAN6_REAR_SPEED:
+          sprintf(name, "FAN6_REAR_SPEED");
+          break;
         default:
           sprintf(name, "");
           break;
@@ -958,31 +1324,22 @@ lightning_sensor_name(uint8_t fru, uint8_t sensor_num, char *name) {
 
 int
 lightning_sensor_read(uint8_t fru, uint8_t sensor_num, void *value) {
+  int ret;
 
   switch (fru) {
     case FRU_PEB:
       switch(sensor_num) {
         // Temperature Sensors
         case PEB_SENSOR_PCIE_SW_TEMP:
-          return read_tmp75_value(I2C_DEV_PEB, PEB_MAX6654_U4, REMOTE_SENSOR, (float*) value);
-        case PEB_SENSOR_PCIE_SW_FRONT_TEMP:
-          return read_tmp75_value(I2C_DEV_PEB, PEB_MAX6654_U4, LOCAL_SENSOR, (float*) value);
-        case PEB_SENSOR_PCIE_SW_REAR_TEMP:
-          return read_tmp75_value(I2C_DEV_PEB, PEB_TMP75_U136, LOCAL_SENSOR, (float*) value);
-        case PEB_SENSOR_LEFT_CONN_TEMP:
-          return read_tmp75_value(I2C_DEV_PEB, PEB_TMP421_U15, REMOTE_SENSOR, (float*) value);
-        case PEB_SENSOR_RIGHT_CONN_TEMP:
-          return read_tmp75_value(I2C_DEV_PEB, PEB_TMP421_U15, LOCAL_SENSOR, (float*) value);
-        case PEB_SENSOR_BMC_TEMP:
-          return read_tmp75_value(I2C_DEV_PEB, PEB_TMP75_U134, LOCAL_SENSOR, (float*) value);
+          return read_temp_value(I2C_DEV_PEB, PEB_MAX6654_U4, REMOTE_SENSOR, (float*) value);
+        case PEB_SENSOR_SYS_INLET_TEMP:
+          return read_temp_value(I2C_DEV_PEB, PEB_TMP421_U15, REMOTE_SENSOR, (float*) value);
 
         // Hot Swap Controller
         case PEB_SENSOR_HSC_IN_VOLT:
           return read_hsc_value(HSC_IN_VOLT, I2C_DEV_PEB, I2C_ADDR_PEB_HSC, HSC_ADM1278, (float*) value);
         case PEB_SENSOR_HSC_OUT_CURR:
           return read_hsc_value(HSC_OUT_CURR, I2C_DEV_PEB, I2C_ADDR_PEB_HSC, HSC_ADM1278, (float*) value);
-        case PEB_SENSOR_HSC_TEMP:
-          return read_hsc_value(HSC_TEMP, I2C_DEV_PEB, I2C_ADDR_PEB_HSC, HSC_ADM1278, (float*) value);
         case PEB_SENSOR_HSC_IN_POWER:
           return read_hsc_value(HSC_IN_POWER, I2C_DEV_PEB, I2C_ADDR_PEB_HSC, HSC_ADM1278, (float*) value);
 
@@ -1012,19 +1369,44 @@ lightning_sensor_read(uint8_t fru, uint8_t sensor_num, void *value) {
 
         if (sensor_num >= PDPB_SENSOR_FLASH_TEMP_0 &&
             sensor_num < (PDPB_SENSOR_FLASH_TEMP_0 + lightning_flash_cnt)) {
-          return read_flash_temp(sensor_num - PDPB_SENSOR_FLASH_TEMP_0, (float*) value);
+          ret = read_flash_temp(sensor_num - PDPB_SENSOR_FLASH_TEMP_0, (float*) value);
+
+          if (ret < 0) {
+            if (pal_reset_ssd_switch() < 0) {
+              syslog(LOG_ERR, "lightning_sensor_read: pal_reset_ssd_switch failed");
+            }
+          }
+
+          return ret;
+        }
+
+        if (sensor_num >= PDPB_SENSOR_AMB_TEMP_0 &&
+            sensor_num < (PDPB_SENSOR_AMB_TEMP_0 + lightning_flash_cnt)) {
+          ret = read_m2_amb_temp(sensor_num - PDPB_SENSOR_AMB_TEMP_0, (float*) value);
+
+          if (ret < 0) {
+            if (pal_reset_ssd_switch() < 0) {
+              syslog(LOG_ERR, "lightning_sensor_read: pal_reset_ssd_switch failed");
+            }
+          }
+
+          return ret;
         }
 
       switch(sensor_num) {
         // Temp
         case PDPB_SENSOR_LEFT_REAR_TEMP:
-          return read_tmp75_value(I2C_DEV_PDPB, PDPB_TMP75_U47, LOCAL_SENSOR, (float*) value);
+          //return read_temp_value(I2C_DEV_PDPB, PDPB_TMP75_U47, LOCAL_SENSOR, (float*) value);
+          return read_tmp75_temp_value(PDPB_TMP75_U47_DEVICE, (float*) value);
         case PDPB_SENSOR_LEFT_FRONT_TEMP:
-          return read_tmp75_value(I2C_DEV_PDPB, PDPB_TMP75_U49, LOCAL_SENSOR, (float*) value);
+          //return read_temp_value(I2C_DEV_PDPB, PDPB_TMP75_U49, LOCAL_SENSOR, (float*) value);
+          return read_tmp75_temp_value(PDPB_TMP75_U49_DEVICE, (float*) value);
         case PDPB_SENSOR_RIGHT_REAR_TEMP:
-          return read_tmp75_value(I2C_DEV_PDPB, PDPB_TMP75_U48, LOCAL_SENSOR, (float*) value);
+          //return read_temp_value(I2C_DEV_PDPB, PDPB_TMP75_U48, LOCAL_SENSOR, (float*) value);
+          return read_tmp75_temp_value(PDPB_TMP75_U48_DEVICE, (float*) value);
         case PDPB_SENSOR_RIGHT_FRONT_TEMP:
-          return read_tmp75_value(I2C_DEV_PDPB, PDPB_TMP75_U51, LOCAL_SENSOR, (float*) value);
+          //return read_temp_value(I2C_DEV_PDPB, PDPB_TMP75_U51, LOCAL_SENSOR, (float*) value);
+          return read_tmp75_temp_value(PDPB_TMP75_U51_DEVICE, (float*) value);
 
         // Voltage
         case PDPB_SENSOR_P12V:
@@ -1035,14 +1417,11 @@ lightning_sensor_read(uint8_t fru, uint8_t sensor_num, void *value) {
           return 0;
 
         case PDPB_SENSOR_P3V3:
-          return read_ads1015_value(ADS1015_CHANNEL5, I2C_DEV_PDPB, I2C_ADDR_PDPB_ADC, (float*) value);
-        case PDPB_SENSOR_P2V5:
-          return read_ads1015_value(ADS1015_CHANNEL6, I2C_DEV_PDPB, I2C_ADDR_PDPB_ADC, (float*) value);
-        case PDPB_SENSOR_P12V_SSD:
-          if (read_ads1015_value(ADS1015_CHANNEL7, I2C_DEV_PDPB, I2C_ADDR_PDPB_ADC, (float*) value) < 0) {
+          if (read_ads1015_value(ADS1015_CHANNEL6, I2C_DEV_PDPB, I2C_ADDR_PDPB_ADC, (float*) value) < 0) {
             return -1;
           }
-          *((float *) value) = *((float *) value) * ((10 + 2) / 2); // Voltage Divider Circuit
+          // NOTE: DVT system has the Voltage Divider Circuit not populated
+          //*((float *) value) = *((float *) value) * ((1 + 1) / 1); // Voltage Divider Circuit
           return 0;
 
         default:
@@ -1070,17 +1449,39 @@ lightning_sensor_read(uint8_t fru, uint8_t sensor_num, void *value) {
           return read_hsc_value(HSC_OUT_CURR, I2C_DEV_FCB, I2C_ADDR_FCB_HSC, HSC_ADM1276, (float*) value);
         case FCB_SENSOR_HSC_IN_POWER:
           return read_hsc_value(HSC_IN_POWER, I2C_DEV_FCB, I2C_ADDR_FCB_HSC, HSC_ADM1276, (float*) value);
-
         case FCB_SENSOR_BJT_TEMP_1:
           return read_nct7904_value(NCT7904_TEMP_CH1, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
-          break;
         case FCB_SENSOR_BJT_TEMP_2:
           return read_nct7904_value(NCT7904_TEMP_CH2, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
-          break;
+
+        // Fan Speed
+        case FCB_SENSOR_FAN6_FRONT_SPEED:
+          return read_nct7904_value(FAN_REGISTER, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN6_REAR_SPEED:
+          return read_nct7904_value(FAN_REGISTER+2, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN5_FRONT_SPEED:
+          return read_nct7904_value(FAN_REGISTER+4, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN5_REAR_SPEED:
+          return read_nct7904_value(FAN_REGISTER+6, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN4_FRONT_SPEED:
+          return read_nct7904_value(FAN_REGISTER+8, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN4_REAR_SPEED:
+          return read_nct7904_value(FAN_REGISTER+10, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN3_FRONT_SPEED:
+          return read_nct7904_value(FAN_REGISTER+12, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN3_REAR_SPEED:
+          return read_nct7904_value(FAN_REGISTER+14, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN2_FRONT_SPEED:
+          return read_nct7904_value(FAN_REGISTER+16, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN2_REAR_SPEED:
+          return read_nct7904_value(FAN_REGISTER+18, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN1_FRONT_SPEED:
+          return read_nct7904_value(FAN_REGISTER+20, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
+        case FCB_SENSOR_FAN1_REAR_SPEED:
+          return read_nct7904_value(FAN_REGISTER+22, I2C_DEV_FCB, I2C_ADDR_NCT7904, (float*) value);
         default:
           return -1;
       }
       break;
   }
 }
-

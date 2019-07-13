@@ -23,7 +23,7 @@
 #define ESC_CHAR_HELP '?'
 //#define ASCII_ESC 27 // ctrl + [
 #define ASCII_CTRL_L 12 // ctrl + L
-#define ASCII_CTRL_X 24 // ctrl + X
+//#define ASCII_CTRL_X 24 // ctrl + X
 #define ASCII_COLON 58 // :
 #define ASCII_CARAT 94 // ^
 #define ASCII_CR 015
@@ -31,6 +31,7 @@
 #define PATH_SIZE 64
 #define SEND_SIZE 256
 #define FILE_SIZE_BYTES 300000
+#define MAX_BYTE 255
 
 typedef enum escMode {
   EOL,
@@ -64,3 +65,4 @@ long int bufferGetLines(char* fname, int clientfd, int n, long int curr);
 void writeToBuffer(bufStore *buf, char* data, int len);
 // tx
 int sendTlv(int fd, uint16_t type, void* value, uint16_t valLen);
+int escSendBreak(int clientfd, char *c);

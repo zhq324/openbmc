@@ -28,6 +28,7 @@ import time
 from subprocess import Popen, PIPE
 import re
 import signal
+from lib_pal import *
 
 from fsc_control import PID, TTable
 import fsc_expr
@@ -36,6 +37,7 @@ RAMFS_CONFIG = '/etc/fsc-config.json'
 CONFIG_DIR = '/etc/fsc'
 
 boost = 100
+boost_type = 'default'
 transitional = 70
 ramp_rate = 10
 verbose = "-v" in sys.argv
@@ -139,7 +141,10 @@ def crit(msg):
 
 def make_controller(profile):
     if profile['type'] == 'linear':
-        controller = TTable(profile['data'])
+        controller = TTable(
+                profile['data'],
+                profile.get('negative_hysteresis', 0),
+                profile.get('positive_hysteresis', 0))
         return controller
     if profile['type'] == 'pid':
         controller = PID(
@@ -171,25 +176,24 @@ class Zone:
 
     def run(self, sensors, dt):
         ctx = {'dt': dt}
-        out = None
+        outmin = 0
         missing = set()
         for v in self.expr_meta['ext_vars']:
             board, sname = v.split(":")
             if sname in sensors[board]:
                 sensor = sensors[board][sname]
                 ctx[v] = sensor.value
+                if sensor.status in ['ucr', 'unr', 'lnr', 'lcr']:
+                    warn('Sensor %s reporting status %s' %
+                         (sensor.name, sensor.status))
+                    outmin = transitional
             else:
                 missing.add(v)
                 # evaluation tries to ignore the effects of None values
                 # (e.g. acts as 0 in max/+)
                 ctx[v] = None
-            if sensor.status in ['ucr', 'unr', 'lnr', 'lcr']:
-                warn('Sensor %s reporting status %s' % (sensor.name, sensor.status))
-                out = transitional
         if missing:
             warn('Missing sensors: %s' % (', '.join(missing),))
-        if out:
-            return out
         if verbose:
             (exprout, dxstr) = self.expr.dbgeval(ctx)
             print(dxstr + " = " + str(exprout))
@@ -201,6 +205,8 @@ class Zone:
         if not exprout:
             crit('No sane fan speed could be calculated! Using transitional speed.')
             exprout = transitional
+        if exprout < outmin:
+            exprout = outmin
         exprout = clamp(exprout, 0, 100)
         return exprout
 
@@ -210,6 +216,7 @@ def profile_constructor(data):
 def main():
     global transitional
     global boost
+    global boost_type
     global wdfile
     global ramp_rate
     syslog.openlog("fscd")
@@ -225,7 +232,14 @@ def main():
         config = json.load(f)
     transitional = config['pwm_transition_value']
     boost = config['pwm_boost_value']
+    if 'boost' in config and 'progressive' in config['boost']:
+        if config['boost']['progressive']:
+            boost_type = 'progressive'
     watchdog = config['watchdog']
+    if 'chassis_intrusion' in config:
+        chassis_intrusion = config['chassis_intrusion']
+    else:
+        chassis_intrusion = False
     if 'ramp_rate' in config:
         ramp_rate = config['ramp_rate']
     wdfile = None
@@ -237,7 +251,6 @@ def main():
         else:
             wdfile.write('V')
             wdfile.flush()
-
     machine.set_all_pwm(transitional)
     profile_constructors = {}
     for name, pdata in config['profiles'].items():
@@ -268,7 +281,6 @@ def main():
         if wdfile:
             wdfile.write('V')
             wdfile.flush()
-
         time.sleep(interval)
         sensors = machine.read_sensors()
         speeds = machine.read_speed()
@@ -282,27 +294,55 @@ def main():
             print("Fan %d speed: %d RPM" % (fan, rpms))
             if rpms < config['min_rpm']:
                 dead_fans.add(fan)
+                pal_fan_dead_handle(fan)
             else:
                 dead_fans.discard(fan)
         recovered_fans = last_dead_fans - dead_fans
         newly_dead_fans = dead_fans - last_dead_fans
         if len(newly_dead_fans) > 0:
             crit("%d fans failed" % (len(dead_fans),))
+            for dead_fan_num in dead_fans:
+                crit("Fan %d dead, %d RPM" % (dead_fan_num, speeds[dead_fan_num]))
         for fan in recovered_fans:
             crit("Fan %d has recovered" % (fan,))
+            pal_fan_recovered_handle(fan)
         for zone in zones:
             print("PWM: %s" % (json.dumps(zone.pwm_output)))
-            pwmval = zone.run(sensors, dt)
+
+            chassis_intrusion_boost_flag=0
+            if chassis_intrusion:
+               self_tray_pull_out = pal_fan_chassis_intrusion_handle()
+               if self_tray_pull_out == 1:
+                  chassis_intrusion_boost_flag = 1 
+
+            if  chassis_intrusion_boost_flag == 0:     
+                pwmval = zone.run(sensors, dt)
+            else:
+                pwmval = boost
+                       
+            if boost_type == 'progressive':
+                dead = len(dead_fans)
+                if dead > 0:
+                    print("Failed fans: %s" %
+                      (', '.join([str(i) for i in dead_fans],)))
+                    if dead < 3:
+                      pwmval = clamp(pwmval + (10 * dead), 0, 100)
+                      print("Boosted PWM to %d" % pwmval)
+                    else:
+                      pwmval = boost
+            else:
+                if dead_fans:
+                    print("Failed fans: %s" %
+                      (', '.join([str(i) for i in dead_fans],)))
+                    pwmval = boost
+
             if abs(zone.last_pwm - pwmval) > ramp_rate:
                 if pwmval < zone.last_pwm:
-                    pwmval = zone.last_pwm - ramp_rate
+                   pwmval = zone.last_pwm - ramp_rate
                 else:
-                    pwmval = zone.last_pwm + ramp_rate
+                   pwmval = zone.last_pwm + ramp_rate
             zone.last_pwm = pwmval
-            if dead_fans:
-                print("Failed fans: %s" %
-                      (', '.join([str(i) for i in dead_fans],)))
-                pwmval = boost
+                
             if hasattr(zone.pwm_output, '__iter__'):
                 for output in zone.pwm_output:
                     machine.set_pwm(output, pwmval)

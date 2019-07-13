@@ -29,9 +29,10 @@ extern "C" {
 #include <facebook/lightning_fruid.h>
 #include <facebook/lightning_sensor.h>
 #include <facebook/lightning_flash.h>
+#include <openbmc/kv.h>
 
 #define MAX_KEY_LEN     64
-#define MAX_VALUE_LEN   64
+#define MAX_VALUE_LEN   128
 
 #define FRU_STATUS_GOOD   1
 #define FRU_STATUS_BAD    0
@@ -45,6 +46,7 @@ extern "C" {
 #define GETMASK(y)          (1 << y)
 
 #define MAX_NODES 1
+#define MAX_FAN_LED_NUM 6
 
 extern char * key_list[];
 extern size_t pal_pwm_cnt;
@@ -110,6 +112,32 @@ enum {
   FAN_6_REAR,
 };
 
+enum {
+  LED_ENCLOSURE = 127, // GPIOP7
+  LED_HB = 115, //GPIOO3
+  LED_DR_LED1 = 106, // GPION2
+  LED_BMC_ID = 57, //GPIOH1
+};
+
+// FAN LED operation
+enum {
+  FAN_LED_ON = 0x00,
+  FAN_LED_OFF,
+  FAN_LED_BLINK_PWM0_RATE,
+  FAN_LED_BLINK_PWM1_RATE,
+};
+
+//FAN LED control regsiter
+enum {
+  REG_INPUT = 0x00,
+  REG_PSC0,
+  REG_PWM0,
+  REG_OSC1,
+  REG_PWM1,
+  REG_LS0,
+  REG_LS1,
+};
+
 int pal_get_platform_name(char *name);
 int pal_get_num_slots(uint8_t *num);
 int pal_is_fru_prsnt(uint8_t fru, uint8_t *status);
@@ -127,7 +155,7 @@ int pal_post_handle(uint8_t slot, uint8_t status);
 int pal_get_pwr_btn(uint8_t *status);
 int pal_get_rst_btn(uint8_t *status);
 int pal_set_rst_btn(uint8_t slot, uint8_t status);
-int pal_set_led(uint8_t slot, uint8_t status);
+int pal_set_led(uint8_t led, uint8_t status);
 int pal_set_hb_led(uint8_t status);
 int pal_set_id_led(uint8_t slot, uint8_t status);
 int pal_get_fru_list(char *list);
@@ -142,6 +170,7 @@ int pal_get_fru_sensor_list(uint8_t fru, uint8_t **sensor_list, int *cnt);
 int pal_get_fru_discrete_list(uint8_t fru, uint8_t **sensor_list, int *cnt);
 int pal_sensor_sdr_init(uint8_t fru, sensor_info_t *sinfo);
 int pal_sensor_read(uint8_t fru, uint8_t sensor_num, void *value);
+int pal_sensor_read_raw(uint8_t fru, uint8_t sensor_num, void *value);
 int pal_sensor_threshold_flag(uint8_t fru, uint8_t snr_num, uint16_t *flag);
 int pal_get_sensor_name(uint8_t fru, uint8_t sensor_num, char *name);
 int pal_get_sensor_threshold(uint8_t fru, uint8_t sensor_num, uint8_t thresh,
@@ -163,7 +192,7 @@ int pal_sensor_discrete_check(uint8_t fru, uint8_t snr_num, char *snr_name,
 int pal_get_event_sensor_name(uint8_t fru, uint8_t snr_num, char *name);
 int pal_parse_sel(uint8_t fru, uint8_t snr_num, uint8_t *event_data,
     char *error_log);
-int pal_sel_handler(uint8_t fru, uint8_t snr_num);
+int pal_sel_handler(uint8_t fru, uint8_t snr_num, uint8_t *event_data);
 void msleep(int msec);
 int pal_set_sensor_health(uint8_t fru, uint8_t value);
 int pal_get_fru_health(uint8_t fru, uint8_t *value);
@@ -176,7 +205,16 @@ int pal_get_uart_chan(uint8_t *status);
 int pal_set_uart_chan(uint8_t status);
 void pal_update_ts_sled();
 int pal_handle_dcmi(uint8_t fru, uint8_t *tbuf, uint8_t tlen, uint8_t *rbuf, uint8_t *rlen);
-
+int pal_is_fru_ready(uint8_t fru, uint8_t *status);
+int pal_reset_pcie_switch();
+int pal_get_pwm_value(uint8_t fan_num, uint8_t *value);
+int pal_set_fan_led(uint8_t num, uint8_t operation);
+int pal_fan_dead_handle(int fan_num);
+int pal_fan_recovered_handle(int fan_num);
+int pal_peer_tray_detection(uint8_t *value);
+int pal_self_tray_location(uint8_t *value);
+int pal_is_crashdump_ongoing(uint8_t slot);
+int pal_reset_ssd_switch();
 
 #ifdef __cplusplus
 } // extern "C"

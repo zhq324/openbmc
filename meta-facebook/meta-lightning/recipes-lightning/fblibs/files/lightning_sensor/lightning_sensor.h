@@ -37,6 +37,14 @@ extern "C" {
 #define THERMAL_CONSTANT      255
 #define ERR_NOT_READY         -2
 
+#define UPPER_TRAY 0x00
+#define LOWER_TRAY 0x01
+
+#define LOWER_TRAY_DONE 0x00
+#define UPPER_TRAY_DONE 0x01
+
+#define MAX_RETRY_TIMES 3
+
 typedef struct _sensor_info_t {
   bool valid;
   sdr_full_t sdr;
@@ -67,22 +75,16 @@ enum {
   PEB_SENSOR_ADC_P1V26 = 0xF0,
   PEB_SENSOR_HSC_IN_VOLT = 0x49,
   PEB_SENSOR_HSC_OUT_CURR = 0x4A,
-  PEB_SENSOR_HSC_IN_POWER = 0x78,
+  PEB_SENSOR_HSC_IN_POWER = 0x4D,
   PEB_SENSOR_PCIE_SW_TEMP = 0x53,
   PEB_SENSOR_PCIE_SW_FRONT_TEMP = 0x54,
-  PEB_SENSOR_PCIE_SW_REAR_TEMP = 0x55,
-  PEB_SENSOR_LEFT_CONN_TEMP = 0x56,
-  PEB_SENSOR_RIGHT_CONN_TEMP = 0x57,
-  PEB_SENSOR_BMC_TEMP = 0x58,
-  PEB_SENSOR_HSC_TEMP = 0x59,
+  PEB_SENSOR_SYS_INLET_TEMP = 0x56,
 };
 
 // Sensors under PDPB
 enum {
   PDPB_SENSOR_P12V = 0x4B,
   PDPB_SENSOR_P3V3 = 0x4C,
-  PDPB_SENSOR_P2V5 = 0x4D,
-  PDPB_SENSOR_P12V_SSD = 0x4E,
   PDPB_SENSOR_LEFT_REAR_TEMP = 0x4F,
   PDPB_SENSOR_LEFT_FRONT_TEMP = 0x50,
   PDPB_SENSOR_RIGHT_REAR_TEMP = 0x51,
@@ -102,10 +104,37 @@ enum {
   PDPB_SENSOR_FLASH_TEMP_12,
   PDPB_SENSOR_FLASH_TEMP_13,
   PDPB_SENSOR_FLASH_TEMP_14 = 0x71,
+  PDPB_SENSOR_AMB_TEMP_0 = 0x73,
+  PDPB_SENSOR_AMB_TEMP_1,
+  PDPB_SENSOR_AMB_TEMP_2,
+  PDPB_SENSOR_AMB_TEMP_3,
+  PDPB_SENSOR_AMB_TEMP_4,
+  PDPB_SENSOR_AMB_TEMP_5,
+  PDPB_SENSOR_AMB_TEMP_6,
+  PDPB_SENSOR_AMB_TEMP_7,
+  PDPB_SENSOR_AMB_TEMP_8,
+  PDPB_SENSOR_AMB_TEMP_9,
+  PDPB_SENSOR_AMB_TEMP_10,
+  PDPB_SENSOR_AMB_TEMP_11,
+  PDPB_SENSOR_AMB_TEMP_12,
+  PDPB_SENSOR_AMB_TEMP_13,
+  PDPB_SENSOR_AMB_TEMP_14 = 0x81,
 };
 
 // Sensors under FCB
 enum {
+  FCB_SENSOR_FAN1_FRONT_SPEED = 0x20,
+  FCB_SENSOR_FAN1_REAR_SPEED = 0x21,
+  FCB_SENSOR_FAN2_FRONT_SPEED = 0x22,
+  FCB_SENSOR_FAN2_REAR_SPEED = 0x23,
+  FCB_SENSOR_FAN3_FRONT_SPEED = 0x24,
+  FCB_SENSOR_FAN3_REAR_SPEED = 0x25,
+  FCB_SENSOR_FAN4_FRONT_SPEED = 0x26,
+  FCB_SENSOR_FAN4_REAR_SPEED = 0x27,
+  FCB_SENSOR_FAN5_FRONT_SPEED = 0x28,
+  FCB_SENSOR_FAN5_REAR_SPEED = 0x29,
+  FCB_SENSOR_FAN6_FRONT_SPEED = 0x2A,
+  FCB_SENSOR_FAN6_REAR_SPEED = 0x2B,
   FCB_SENSOR_P12V_AUX = 0x34,
   FCB_SENSOR_P12VL = 0x35,
   FCB_SENSOR_P12VU = 0x36,
@@ -117,15 +146,23 @@ enum {
   FCB_SENSOR_BJT_TEMP_2 = 0x61,
 };
 
-extern const uint8_t peb_sensor_list[];
+extern const uint8_t peb_sensor_pmc_list[];
 
-extern const uint8_t pdpb_sensor_list[];
+extern const uint8_t peb_sensor_plx_list[];
+
+extern const uint8_t pdpb_u2_sensor_list[];
+
+extern const uint8_t pdpb_m2_sensor_list[];
 
 extern const uint8_t fcb_sensor_list[];
 
-extern size_t peb_sensor_cnt;
+extern size_t peb_sensor_pmc_cnt;
 
-extern size_t pdpb_sensor_cnt;
+extern size_t peb_sensor_plx_cnt;
+
+extern size_t pdpb_u2_sensor_cnt;
+
+extern size_t pdpb_m2_sensor_cnt;
 
 extern size_t fcb_sensor_cnt;
 

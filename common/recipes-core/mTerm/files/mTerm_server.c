@@ -15,7 +15,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-
+#include <ctype.h>
 #include <sys/file.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -82,6 +82,7 @@ static int acceptClient(int serverFd) {
     syslog(LOG_ERR, "mTerm_server: Server errror on accept()\n");
     return -1;
   }
+  syslog(LOG_INFO, "mTerm_server: Client socket %d created\n", fd);
   return fd;
 }
 
@@ -90,12 +91,18 @@ void closeClient(fd_set* master, int clientfd) {
   FD_CLR(clientfd, master);
 }
 
+void sendBreak(int clientFd, int solFd, char *c) {
+  syslog(LOG_INFO, "mTerm_server: Client socket %d send BREAK+%c\n", clientFd,*c);
+  tcsendbreak(solFd, 1);
+}
+
 static void processClient(fd_set* master, int clientFd , int solFd,
                           bufStore *buf) {
   char data[BUF_SIZE];
   int nbytes = 0;
   TlvHeader header;
   struct iovec vec[2];
+  char* tbuf;
 
   vec[0].iov_base = &header;
   vec[0].iov_len = sizeof(header);
@@ -104,21 +111,21 @@ static void processClient(fd_set* master, int clientFd , int solFd,
 
   /* TODO: server should be able to handle data for a tlv over multiple reads */
   nbytes = readv(clientFd, vec, 2);
+
   if (nbytes <= 0) {
     if (nbytes == 0) {
-      syslog(LOG_INFO, "mTerm_server: Client socket %d hung up\n", clientFd);
+      syslog(LOG_ERR, "mTerm_server: Client socket %d hung up\n", clientFd);
     } else {
       syslog(LOG_ERR, "mTerm_server: Error on read fd=%d\n", clientFd);
     }
     closeClient(master, clientFd);
   } else if (nbytes < sizeof(TlvHeader)) {
-    /* TODO: Potentially we should use a per-client buffer, for now close
-     Client connection */
-    syslog(LOG_ERR, "mTerm_server: Error on read fd=%d\n", clientFd);
+    // TODO: Potentially we should use a per-client buffer, for now close
+    //  Client connection
+    syslog(LOG_ERR, "mTerm_server: Error on read fd=%d socket_nbytes=%d\n", clientFd, nbytes);
     closeClient(master, clientFd);
   } else if (header.length > (nbytes - sizeof(header))) {
-    syslog(LOG_ERR, "mTerm_server: Error on read fd=%d\n", clientFd);
-    closeClient(master, clientFd);
+    syslog(LOG_ERR, "mTerm_server: Received %d bytes for fd=%d dropping message.\n",nbytes, clientFd);
   } else {
     switch (header.type) {
       case ASCII_CTRL_L:
@@ -126,10 +133,19 @@ static void processClient(fd_set* master, int clientFd , int solFd,
          buffer read per client, thus subsequent reads can be based on the
          last reference
         */
-        bufferGetLines(buf->file, clientFd, atoi(vec[1].iov_base), 0);
+        tbuf = vec[1].iov_base;
+        if (isalpha(*tbuf)) {
+          if (*tbuf == 'b') {
+            sendBreak(clientFd, solFd, tbuf);
+          } else {
+            syslog(LOG_ERR, "mTerm_server: Received incorrect break char");
+          }
+        } else {
+          bufferGetLines(buf->file, clientFd, atoi(vec[1].iov_base), 0);
+        }
         break;
       case ASCII_DELETE:
-        syslog(LOG_INFO, "mTerm_server: Client socket %d hung up\n", clientFd);
+        syslog(LOG_INFO, "mTerm_server: Client socket %d closed\n", clientFd);
         closeClient(master, clientFd);
         break;
       case ASCII_CARAT:
